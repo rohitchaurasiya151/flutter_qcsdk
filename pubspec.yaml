@@ -1,6 +1,6 @@
 name: flutter_qcsdk
 description: A Flutter plugin for Oudmon / HeyCyan smart glasses and wearables. Enables BLE device scanning, connection management, battery monitoring, media file synchronization, AI chat integration (text, voice, image), and Wi-Fi OTA firmware upgrades.
-version: 0.0.1
+version: 0.0.2
 repository: https://github.com/rohitchaurasiya151/flutter_qcsdk
 
 environment:
