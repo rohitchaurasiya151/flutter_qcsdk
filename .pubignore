@@ -1,0 +1,8 @@
+# Exclude proprietary Android SDK source code from pub.dev publishing
+android/src/main/java/com/oudmon/
+
+# Exclude GPL compression library source code from pub.dev publishing
+android/src/main/java/org/jvcompress/
+
+# Exclude proprietary iOS SDK binary frameworks from pub.dev publishing
+ios/Frameworks/
