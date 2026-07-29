@@ -23,7 +23,75 @@ These directories are automatically ignored in `.gitignore` and `.pubignore` to 
 
 ---
 
+## Platform Setup & Permissions
+
+Since this package interacts directly with Bluetooth (BLE) and Wi-Fi networks for media synchronization, you must configure the following permissions on the host applications.
+
+### Android Setup
+While the package automatically merges standard permissions, you should ensure that your application supports Bluetooth scanning and location permissions in the `AndroidManifest.xml` (especially for older Android versions):
+
+```xml
+<!-- Bluetooth permissions -->
+<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+
+<!-- Wi-Fi state permissions for media download & upgrades -->
+<uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+<uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+<uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
+
+<!-- Location (needed for scanning Bluetooth devices on Android 11 and below) -->
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+```
+
+### iOS Setup
+iOS does **not** merge permissions automatically. You must add the following keys to your iOS app's `ios/Runner/Info.plist` file:
+
+```xml
+<!-- Bluetooth Access -->
+<key>NSBluetoothAlwaysUsageDescription</key>
+<string>This app requires Bluetooth access to scan and connect to spectacles devices.</string>
+<key>NSBluetoothPeripheralUsageDescription</key>
+<string>This app requires Bluetooth access to communicate with spectacles devices.</string>
+
+<!-- Local Network Access (Required for Wi-Fi media file downloading) -->
+<key>NSLocalNetworkUsageDescription</key>
+<string>App needs to use your local network to download media from the smart glasses.</string>
+
+<key>NSBonjourServices</key>
+<array>
+    <string>_http._tcp</string>
+    <string>_http._udp</string>
+</array>
+
+<!-- Allow Local HTTP Connections -->
+<key>NSAppTransportSecurity</key>
+<dict>
+    <key>NSAllowsArbitraryLoads</key>
+    <true/>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+</dict>
+
+<!-- Optional: Bluetooth Background Execution -->
+<key>UIBackgroundModes</key>
+<array>
+    <string>bluetooth-central</string>
+    <string>fetch</string>
+</array>
+```
+
+---
+
 ## Getting Started
+
 
 
 To get started with `flutter_qcsdk`, initialize the SDK before calling other methods:
