@@ -203,6 +203,27 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
         this.eventSink = events
+        // Immediately notify current bluetooth and connection states on startup/subscription
+        mainHandler.post {
+            try {
+                val btAdapter = BluetoothAdapter.getDefaultAdapter()
+                val btState = if (btAdapter != null && btAdapter.isEnabled) 5 else 4
+                events?.success(mapOf(
+                    "type" to "bluetoothState",
+                    "state" to btState
+                ))
+
+                val isConnected = BleOperateManager.getInstance().isConnected
+                if (isConnected) {
+                    events?.success(mapOf(
+                        "type" to "deviceState",
+                        "state" to 3 // connected
+                    ))
+                }
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
     }
 
     override fun onCancel(arguments: Any?) {
@@ -234,6 +255,43 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
     override fun onMethodCall(call: MethodCall, rawResult: Result) {
         val result = SafeResult(rawResult)
         when (call.method) {
+            "getDeviceState" -> {
+                val isConnected = try {
+                    BleOperateManager.getInstance().isConnected
+                } catch (e: Exception) {
+                    false
+                }
+                val state = if (isConnected) 3 else 5
+                result.success(state)
+            }
+            "isDeviceConnected" -> {
+                val isConnected = try {
+                    BleOperateManager.getInstance().isConnected
+                } catch (e: Exception) {
+                    false
+                }
+                result.success(isConnected)
+            }
+            "getConnectedDevice" -> {
+                try {
+                    val isConnected = BleOperateManager.getInstance().isConnected
+                    if (isConnected) {
+                        val address = DeviceManager.getInstance().deviceAddress ?: ""
+                        val name = DeviceManager.getInstance().deviceName ?: "Smart Specs"
+                        result.success(mapOf(
+                            "name" to name,
+                            "identifier" to address,
+                            "mac" to address,
+                            "rssi" to 0,
+                            "isPaired" to true
+                        ))
+                    } else {
+                        result.success(null)
+                    }
+                } catch (e: Exception) {
+                    result.success(null)
+                }
+            }
             "startScan" -> {
                 scannedDevices.clear()
                 BleScannerHelper.getInstance().reSetCallback()
@@ -354,6 +412,8 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                         val photoCount = response.imageCount
                         val videoCount = response.videoCount
                         val audioCount = response.recordCount
+                        val totalCount = photoCount + videoCount + audioCount
+                        Log.i("FlutterQcsdk", "👓 [SPECS MEDIA INFO] Total items on glasses: $totalCount -> Photos: $photoCount, Videos: $videoCount, Audio: $audioCount")
                         mainHandler.post {
                             eventSink?.success(mapOf(
                                 "type" to "mediaUpdate",
@@ -370,6 +430,7 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                             ))
                         }
                     } else {
+                        Log.e("FlutterQcsdk", "❌ [SPECS MEDIA INFO ERROR] Failed to get device media count from glasses")
                         mainHandler.post { result.error("ERROR", "Failed to get device media count", null) }
                     }
                 }

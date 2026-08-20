@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'src/qcsdk_types.dart';
 import 'src/qcsdk_models.dart';
@@ -61,10 +62,14 @@ class FlutterQcsdk {
             });
             break;
           case 'mediaUpdate':
+            final photoCount = event['photoCount'] as int? ?? 0;
+            final videoCount = event['videoCount'] as int? ?? 0;
+            final audioCount = event['audioCount'] as int? ?? 0;
+            debugPrint('👓 [SPECS SDK STREAM] Media Info Update -> Total: ${photoCount + videoCount + audioCount} (Photos: $photoCount, Videos: $videoCount, Audio: $audioCount)');
             _mediaUpdateController.add({
-              'photoCount': event['photoCount'] as int? ?? 0,
-              'videoCount': event['videoCount'] as int? ?? 0,
-              'audioCount': event['audioCount'] as int? ?? 0,
+              'photoCount': photoCount,
+              'videoCount': videoCount,
+              'audioCount': audioCount,
               'mediaType': event['mediaType'] as int? ?? 0,
             });
             break;
@@ -122,6 +127,25 @@ class FlutterQcsdk {
 
   // --- Bluetooth Connection Actions ---
 
+  /// Query the current device connection state directly
+  static Future<QCDeviceState> getDeviceState() async {
+    final int? stateVal = await _channel.invokeMethod<int>('getDeviceState');
+    return QCDeviceState.fromValue(stateVal ?? 0);
+  }
+
+  /// Check whether the device is currently connected
+  static Future<bool> isDeviceConnected() async {
+    final bool? isConnected = await _channel.invokeMethod<bool>('isDeviceConnected');
+    return isConnected ?? false;
+  }
+
+  /// Retrieve the currently connected device info (if connected)
+  static Future<QCBleDevice?> getConnectedDevice() async {
+    final Map<dynamic, dynamic>? res = await _channel.invokeMethod('getConnectedDevice');
+    if (res == null) return null;
+    return QCBleDevice.fromMap(res);
+  }
+
   /// Start scanning for devices
   static Future<void> startScan() async {
     await _channel.invokeMethod('startScan');
@@ -132,7 +156,7 @@ class FlutterQcsdk {
     await _channel.invokeMethod('stopScan');
   }
 
-  /// Connect to a device via its unique iOS identifier UUID string
+  /// Connect to a device via its unique identifier (MAC / UUID string)
   static Future<void> connect(String identifier) async {
     await _channel.invokeMethod('connect', {'identifier': identifier});
   }
@@ -180,7 +204,9 @@ class FlutterQcsdk {
   /// Get counts of media files currently on the device
   static Future<QCDeviceMediaInfo> getDeviceMedia() async {
     final Map<dynamic, dynamic>? res = await _channel.invokeMethod('getDeviceMedia');
-    return QCDeviceMediaInfo.fromMap(res ?? {});
+    final mediaInfo = QCDeviceMediaInfo.fromMap(res ?? {});
+    debugPrint('👓 [SPECS SDK getDeviceMedia] Photos: ${mediaInfo.photoCount}, Videos: ${mediaInfo.videoCount}, Audio: ${mediaInfo.audioCount}, Total: ${mediaInfo.photoCount + mediaInfo.videoCount + mediaInfo.audioCount}');
+    return mediaInfo;
   }
 
   /// Delete all media files on the device
