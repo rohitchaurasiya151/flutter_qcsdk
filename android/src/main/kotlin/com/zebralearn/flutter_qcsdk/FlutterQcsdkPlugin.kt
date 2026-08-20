@@ -209,7 +209,30 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
         this.eventSink = null
     }
 
-    override fun onMethodCall(call: MethodCall, result: Result) {
+    private class SafeResult(private val target: Result) : Result {
+        private val hasReplied = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        override fun success(result: Any?) {
+            if (hasReplied.compareAndSet(false, true)) {
+                target.success(result)
+            }
+        }
+
+        override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+            if (hasReplied.compareAndSet(false, true)) {
+                target.error(errorCode, errorMessage, errorDetails)
+            }
+        }
+
+        override fun notImplemented() {
+            if (hasReplied.compareAndSet(false, true)) {
+                target.notImplemented()
+            }
+        }
+    }
+
+    override fun onMethodCall(call: MethodCall, rawResult: Result) {
+        val result = SafeResult(rawResult)
         when (call.method) {
             "startScan" -> {
                 scannedDevices.clear()
