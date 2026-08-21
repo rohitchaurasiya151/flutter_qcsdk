@@ -436,7 +436,10 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                 }
             }
             "deleteAllMedias" -> {
-                result.success(null)
+                val cmdData = byteArrayOf(0x02, 0x05)
+                LargeDataHandler.getInstance().glassesControl(cmdData) { _, _ ->
+                    mainHandler.post { result.success(null) }
+                }
             }
             "deleteMedia" -> {
                 result.success(null)
@@ -736,7 +739,16 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                             }
                         }
 
-                        override fun fileProgress(fileName: String, progress: Int) {}
+                        override fun fileProgress(fileName: String, progress: Int) {
+                            mainHandler.post {
+                                eventSink?.success(mapOf(
+                                    "type" to "downloadProgress",
+                                    "receivedSize" to progress,
+                                    "expectedSize" to 100,
+                                    "progress" to (progress.toDouble() / 100.0).coerceIn(0.0, 1.0)
+                                ))
+                            }
+                        }
 
                         override fun fileWasDownloadSuccessfully(entity: GlassAlbumEntity) {
                             mainHandler.post {
