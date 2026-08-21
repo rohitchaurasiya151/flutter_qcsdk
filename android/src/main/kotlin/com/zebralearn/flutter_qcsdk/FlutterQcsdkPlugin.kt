@@ -332,6 +332,7 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
             "connect" -> {
                 val identifier = call.argument<String>("identifier")
                 if (identifier != null) {
+                    DeviceManager.getInstance().deviceAddress = identifier
                     BleOperateManager.getInstance().connectDirectly(identifier)
                     result.success(null)
                 } else {
@@ -797,9 +798,20 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
     inner class PluginBleReceiver : QCBluetoothCallbackCloneReceiver() {
         override fun connectStatue(device: BluetoothDevice?, connected: Boolean) {
             if (device != null && connected) {
-                if (device.name != null) {
-                    DeviceManager.getInstance().deviceName = device.name
+                val devName = device.name ?: DeviceManager.getInstance().deviceName ?: "Smart Specs"
+                val devAddress = device.address ?: DeviceManager.getInstance().deviceAddress ?: ""
+                DeviceManager.getInstance().deviceName = devName
+                DeviceManager.getInstance().deviceAddress = devAddress
+
+                val wifiMac = devAddress.replace(":", "")
+                var wifiName = if (devName.contains("_")) devName.split("_")[0] else devName
+                if (wifiName.length > 20) {
+                    wifiName = wifiName.substring(0, 20)
                 }
+                DeviceManager.getInstance().wifiName = "${wifiName}_$wifiMac"
+                DeviceManager.getInstance().wifiPassword = "123456789"
+                Log.i(TAG, "👓 [BLE CONNECTED] devName=$devName, devAddress=$devAddress, wifiName=${wifiName}_$wifiMac")
+
                 mainHandler.post {
                     eventSink?.success(mapOf(
                         "type" to "deviceState",
