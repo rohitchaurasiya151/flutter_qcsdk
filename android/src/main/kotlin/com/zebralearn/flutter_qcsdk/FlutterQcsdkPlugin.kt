@@ -693,6 +693,18 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                 result.success(null)
             }
             "getBTStatus" -> {
+                try {
+                    val btAdapter = BluetoothAdapter.getDefaultAdapter()
+                    val btState = if (btAdapter != null && btAdapter.isEnabled) 5 else 4
+                    mainHandler.post {
+                        eventSink?.success(mapOf(
+                            "type" to "bluetoothState",
+                            "state" to btState
+                        ))
+                    }
+                } catch (e: Exception) {
+                    // ignore
+                }
                 result.success(null)
             }
             "stopAIChat" -> {
