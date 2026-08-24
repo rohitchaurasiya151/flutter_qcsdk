@@ -7,6 +7,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.provider.Settings
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Handler
@@ -255,6 +256,16 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
     override fun onMethodCall(call: MethodCall, rawResult: Result) {
         val result = SafeResult(rawResult)
         when (call.method) {
+            "openBluetoothSettings" -> {
+                try {
+                    val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    context?.startActivity(intent)
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.error("ERROR", e.message, null)
+                }
+            }
             "getDeviceState" -> {
                 val isConnected = try {
                     BleOperateManager.getInstance().isConnected

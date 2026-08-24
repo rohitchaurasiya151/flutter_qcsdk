@@ -347,6 +347,26 @@
     }];
     result(nil);
   }
+  else if ([@"openBluetoothSettings" isEqualToString:call.method]) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      NSURL *url = [NSURL URLWithString:UIApplicationOpenSettingsURLString];
+      if (url && [[UIApplication sharedApplication] canOpenURL:url]) {
+        if (@available(iOS 10.0, *)) {
+          [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:^(BOOL success) {
+            result(@(success));
+          }];
+        } else {
+          #pragma clang diagnostic push
+          #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+          BOOL success = [[UIApplication sharedApplication] openURL:url];
+          #pragma clang diagnostic pop
+          result(@(success));
+        }
+      } else {
+        result([FlutterError errorWithCode:@"ERROR" message:@"Cannot open settings URL" details:nil]);
+      }
+    });
+  }
   else {
     result(FlutterMethodNotImplemented);
   }

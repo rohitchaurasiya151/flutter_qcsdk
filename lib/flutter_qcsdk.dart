@@ -341,4 +341,9 @@ class FlutterQcsdk {
   static Future<void> startToDownloadMediaResource() async {
     await _channel.invokeMethod('startToDownloadMediaResource');
   }
+
+  /// Open native Bluetooth settings screen (Android only)
+  static Future<void> openBluetoothSettings() async {
+    await _channel.invokeMethod('openBluetoothSettings');
+  }
 }
