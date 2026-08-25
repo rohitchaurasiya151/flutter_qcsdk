@@ -57,6 +57,10 @@
     }
   }
   else if ([@"disconnect" isEqualToString:call.method]) {
+    [[QCCentralManager shared] disconnect];
+    result(nil);
+  }
+  else if ([@"unpair" isEqualToString:call.method]) {
     [[QCCentralManager shared] remove];
     result(nil);
   }

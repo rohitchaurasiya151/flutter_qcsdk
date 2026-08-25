@@ -191,6 +191,18 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     [_centerManager connectPeripheral:lastPer options:options];
 }
 
+- (void)disconnect {
+    [self stopTimer];
+    if (self.connectedPeripheral) {
+        @try {
+            [_centerManager cancelPeripheralConnection:self.connectedPeripheral];
+        } @catch (NSException *e) {
+            NSLog(@"warn: 取消设备(%@)连接时出现异常", self.connectedPeripheral.name);
+        }
+    }
+    self.deviceState = QCStateDisconnected;
+}
+
 - (void)remove {
     
     [self stopTimer];
@@ -364,6 +376,9 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     
     if(self.deviceState == QCStateDisconnecting) { //unbinding device
         self.deviceState = QCStateUnbind;
+    }
+    else if (self.deviceState == QCStateDisconnected) { // deliberate user disconnect
+        self.deviceState = QCStateDisconnected;
     }
     else {
         //reconnect device

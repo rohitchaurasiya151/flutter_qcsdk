@@ -105,7 +105,10 @@ typedef NS_ENUM(NSInteger, QCBluetoothState) {
 ///   - deviceType: defalult is QCDeviceTypeRing
 - (void)connect:(CBPeripheral *)peripheral timeout:(NSInteger)timeout deviceType:(QCDeviceType)deviceType;
 
-/// remove bind device
+/// Temporarily disconnect device (keeps pairing info for quick reconnection)
+- (void)disconnect;
+
+/// remove bind device (unpairs and removes stored pairing credentials)
 - (void)remove;
 @end
 

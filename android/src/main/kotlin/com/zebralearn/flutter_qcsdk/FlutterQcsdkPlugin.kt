@@ -351,7 +351,19 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                 }
             }
             "disconnect" -> {
+                BleOperateManager.getInstance().disconnect()
+                result.success(null)
+            }
+            "unpair" -> {
                 BleOperateManager.getInstance().unBindDevice()
+                DeviceManager.getInstance().deviceAddress = null
+                DeviceManager.getInstance().deviceName = null
+                mainHandler.post {
+                    eventSink?.success(mapOf(
+                        "type" to "deviceState",
+                        "state" to 1 // unbind
+                    ))
+                }
                 result.success(null)
             }
             "setDeviceMode" -> {

@@ -161,9 +161,14 @@ class FlutterQcsdk {
     await _channel.invokeMethod('connect', {'identifier': identifier});
   }
 
-  /// Disconnect and unbind the device
+  /// Temporarily disconnect the device (retains device pairing and stored info for fast reconnection)
   static Future<void> disconnect() async {
     await _channel.invokeMethod('disconnect');
+  }
+
+  /// Unpair and completely unbind the device (clears stored pairing credentials and device info)
+  static Future<void> unpair() async {
+    await _channel.invokeMethod('unpair');
   }
 
   // --- Device Control Commands ---
