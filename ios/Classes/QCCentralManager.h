@@ -110,6 +110,9 @@ typedef NS_ENUM(NSInteger, QCBluetoothState) {
 
 /// remove bind device (unpairs and removes stored pairing credentials)
 - (void)remove;
+
+/// Retrieve peripheral by UUID
+- (nullable CBPeripheral *)periperalWithUUID:(NSString *)uuid;
 @end
 
 NS_ASSUME_NONNULL_END

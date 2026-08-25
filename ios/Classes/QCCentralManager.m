@@ -177,6 +177,10 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 - (void)connectCurrentPeripheral {
     
     CBPeripheral *lastPer = [self lastPeripheral];
+    if (!lastPer) {
+        NSLog(@"⚠️ [QCCentralManager] connectCurrentPeripheral: no peripheral found to connect.");
+        return;
+    }
     NSLog(@"connect device:%@",lastPer);
     NSDictionary * options = [NSMutableDictionary new];
     [options setValue:@(YES) forKey:CBConnectPeripheralOptionNotifyOnDisconnectionKey];
@@ -349,11 +353,11 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 
 - (void)centralManager:(CBCentralManager *)central didConnectPeripheral:(CBPeripheral *)peripheral {
     NSLog(@"Connection to device (%@) succeeded", peripheral.name);
+    [self stopTimer];
+    self.connectedPeripheral = peripheral;
     
     [[QCSDKManager shareInstance] removePeripheral:peripheral];
     [[QCSDKManager shareInstance] addPeripheral:peripheral finished:^(BOOL success) {
-        
-        [self stopTimer];
         if (success) {
             NSLog(@"Add peripherals successfully");
             [self stopScan];

@@ -34,6 +34,19 @@
   return self;
 }
 
+- (void)sendEvent:(NSDictionary *)event {
+  if (!self.eventSink) return;
+  if ([NSThread isMainThread]) {
+    self.eventSink(event);
+  } else {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (self.eventSink) {
+        self.eventSink(event);
+      }
+    });
+  }
+}
+
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
   if ([@"startScan" isEqualToString:call.method]) {
     [self.scannedPeripherals removeAllObjects];
@@ -44,9 +57,47 @@
     [[QCCentralManager shared] stopScan];
     result(nil);
   }
+  else if ([@"getDeviceState" isEqualToString:call.method]) {
+    QCState state = [QCCentralManager shared].deviceState;
+    result(@(state));
+  }
+  else if ([@"isDeviceConnected" isEqualToString:call.method]) {
+    BOOL isConnected = ([QCCentralManager shared].deviceState == QCStateConnected);
+    result(@(isConnected));
+  }
+  else if ([@"getConnectedDevice" isEqualToString:call.method]) {
+    CBPeripheral *peripheral = [QCCentralManager shared].connectedPeripheral;
+    if (peripheral && [QCCentralManager shared].deviceState == QCStateConnected) {
+      NSString *uuid = peripheral.identifier.UUIDString ?: @"";
+      NSString *name = peripheral.name ?: @"Smart Specs";
+      result(@{
+        @"name": name,
+        @"identifier": uuid,
+        @"mac": uuid,
+        @"rssi": @(0),
+        @"isPaired": @(YES)
+      });
+    } else {
+      NSString *uuid = [[NSUserDefaults standardUserDefaults] objectForKey:@"QCLastConnectedIdentifier"];
+      if (uuid && uuid.length > 0 && [QCCentralManager shared].deviceState == QCStateConnected) {
+        result(@{
+          @"name": @"Smart Specs",
+          @"identifier": uuid,
+          @"mac": uuid,
+          @"rssi": @(0),
+          @"isPaired": @(YES)
+        });
+      } else {
+        result(nil);
+      }
+    }
+  }
   else if ([@"connect" isEqualToString:call.method]) {
     NSString *identifier = call.arguments[@"identifier"];
     CBPeripheral *peripheral = self.scannedPeripherals[identifier];
+    if (!peripheral && identifier.length > 0) {
+      peripheral = [[QCCentralManager shared] periperalWithUUID:identifier];
+    }
     if (peripheral) {
       [[QCCentralManager shared] connect:peripheral];
       result(nil);
@@ -329,25 +380,22 @@
     }];
   }
   else if ([@"startToDownloadMediaResource" isEqualToString:call.method]) {
+    __weak typeof(self) weakSelf = self;
     [[QCSDKManager shareInstance] startToDownloadMediaResourceWithProgress:^(NSInteger receivedSize, NSInteger expectedSize, CGFloat progress) {
-      if (self.eventSink) {
-        self.eventSink(@{
-          @"type": @"downloadProgress",
-          @"receivedSize": @(receivedSize),
-          @"expectedSize": @(expectedSize),
-          @"progress": @(progress)
-        });
-      }
+      [weakSelf sendEvent:@{
+        @"type": @"downloadProgress",
+        @"receivedSize": @(receivedSize),
+        @"expectedSize": @(expectedSize),
+        @"progress": @(progress)
+      }];
     } completion:^(NSString * _Nullable filePath, NSError * _Nullable error, NSInteger index, NSInteger count) {
-      if (self.eventSink) {
-        self.eventSink(@{
-          @"type": @"downloadComplete",
-          @"filePath": filePath ?: @"",
-          @"error": error.localizedDescription ?: @"",
-          @"index": @(index),
-          @"count": @(count)
-        });
-      }
+      [weakSelf sendEvent:@{
+        @"type": @"downloadComplete",
+        @"filePath": filePath ?: @"",
+        @"error": error.localizedDescription ?: @"",
+        @"index": @(index),
+        @"count": @(count)
+      }];
     }];
     result(nil);
   }
@@ -380,6 +428,18 @@
 
 - (FlutterError * _Nullable)onListenWithArguments:(id _Nullable)arguments eventSink:(FlutterEventSink)events {
   self.eventSink = events;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (self.eventSink) {
+      self.eventSink(@{
+        @"type": @"bluetoothState",
+        @"state": @([QCCentralManager shared].bleState)
+      });
+      self.eventSink(@{
+        @"type": @"deviceState",
+        @"state": @([QCCentralManager shared].deviceState)
+      });
+    }
+  });
   return nil;
 }
 
@@ -391,74 +451,64 @@
 #pragma mark - QCSDKManagerDelegate
 
 - (void)didUpdateBatteryLevel:(NSInteger)battery charging:(BOOL)charging {
-  if (self.eventSink) {
-    self.eventSink(@{
-      @"type": @"batteryLevel",
-      @"battery": @(battery),
-      @"charging": @(charging)
-    });
-  }
+  [self sendEvent:@{
+    @"type": @"batteryLevel",
+    @"battery": @(battery),
+    @"charging": @(charging)
+  }];
 }
 
 - (void)didUpdateMediaWithPhotoCount:(NSInteger)photo videoCount:(NSInteger)video audioCount:(NSInteger)audio type:(NSInteger)type {
-  if (self.eventSink) {
-    self.eventSink(@{
-      @"type": @"mediaUpdate",
-      @"photoCount": @(photo),
-      @"videoCount": @(video),
-      @"audioCount": @(audio),
-      @"mediaType": @(type)
-    });
-  }
+  [self sendEvent:@{
+    @"type": @"mediaUpdate",
+    @"photoCount": @(photo),
+    @"videoCount": @(video),
+    @"audioCount": @(audio),
+    @"mediaType": @(type)
+  }];
 }
 
 - (void)didReceiveAIChatTextMessage:(NSString *)message {
-  if (self.eventSink) {
-    self.eventSink(@{
-      @"type": @"aiChatText",
-      @"message": message
-    });
-  }
+  [self sendEvent:@{
+    @"type": @"aiChatText",
+    @"message": message ?: @""
+  }];
 }
 
 - (void)didReceiveAIChatVoiceData:(NSData *)pcmData {
-  if (self.eventSink) {
+  if (pcmData) {
     FlutterStandardTypedData *typedData = [FlutterStandardTypedData typedDataWithBytes:pcmData];
-    self.eventSink(@{
+    [self sendEvent:@{
       @"type": @"aiChatVoice",
       @"data": typedData
-    });
+    }];
   }
 }
 
 - (void)didReceiveAIChatImageData:(NSData *)imageData {
-  if (self.eventSink) {
+  if (imageData) {
     FlutterStandardTypedData *typedData = [FlutterStandardTypedData typedDataWithBytes:imageData];
-    self.eventSink(@{
+    [self sendEvent:@{
       @"type": @"aiChatImage",
       @"data": typedData
-    });
+    }];
   }
 }
 
 - (void)didUpdateWiFiUpgradeProgressWithDownload:(NSInteger)download upgrade1:(NSInteger)upgrade1 upgrade2:(NSInteger)upgrade2 {
-  if (self.eventSink) {
-    self.eventSink(@{
-      @"type": @"wifiUpgradeProgress",
-      @"download": @(download),
-      @"upgrade1": @(upgrade1),
-      @"upgrade2": @(upgrade2)
-    });
-  }
+  [self sendEvent:@{
+    @"type": @"wifiUpgradeProgress",
+    @"download": @(download),
+    @"upgrade1": @(upgrade1),
+    @"upgrade2": @(upgrade2)
+  }];
 }
 
 - (void)didReceiveWiFiUpgradeResult:(BOOL)success {
-  if (self.eventSink) {
-    self.eventSink(@{
-      @"type": @"wifiUpgradeResult",
-      @"success": @(success)
-    });
-  }
+  [self sendEvent:@{
+    @"type": @"wifiUpgradeResult",
+    @"success": @(success)
+  }];
 }
 
 #pragma mark - QCCentralManagerDelegate
@@ -477,40 +527,32 @@
       }];
     }
   }
-  if (self.eventSink) {
-    self.eventSink(@{
-      @"type": @"scanResults",
-      @"peripherals": list
-    });
-  }
+  [self sendEvent:@{
+    @"type": @"scanResults",
+    @"peripherals": list
+  }];
 }
 
 - (void)didState:(QCState)state {
-  if (self.eventSink) {
-    self.eventSink(@{
-      @"type": @"deviceState",
-      @"state": @(state)
-    });
-  }
+  [self sendEvent:@{
+    @"type": @"deviceState",
+    @"state": @(state)
+  }];
 }
 
 - (void)didBluetoothState:(QCBluetoothState)state {
-  if (self.eventSink) {
-    self.eventSink(@{
-      @"type": @"bluetoothState",
-      @"state": @(state)
-    });
-  }
+  [self sendEvent:@{
+    @"type": @"bluetoothState",
+    @"state": @(state)
+  }];
 }
 
 - (void)didFailConnected:(CBPeripheral *)peripheral error:(nullable NSError*)error {
-  if (self.eventSink) {
-    self.eventSink(@{
-      @"type": @"connectFail",
-      @"identifier": peripheral.identifier.UUIDString ?: @"",
-      @"error": error.localizedDescription ?: @"Connection failed"
-    });
-  }
+  [self sendEvent:@{
+    @"type": @"connectFail",
+    @"identifier": peripheral.identifier.UUIDString ?: @"",
+    @"error": error.localizedDescription ?: @"Connection failed"
+  }];
 }
 
 @end
