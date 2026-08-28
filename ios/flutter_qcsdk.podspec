@@ -24,9 +24,10 @@ A new Flutter plugin project.
   s.pod_target_xcconfig = { 
     'DEFINES_MODULE' => 'YES',
     'FRAMEWORK_SEARCH_PATHS' => '$(inherited) "${PODS_TARGET_SRCROOT}/Frameworks"',
-    'OTHER_LDFLAGS' => '$(inherited) -framework QCSDK -framework JLAudioUnitKit -framework JLLogHelper'
+    'OTHER_LDFLAGS' => '$(inherited) -ObjC -framework QCSDK -framework JLAudioUnitKit -framework JLLogHelper'
   }
   s.user_target_xcconfig = {
-    'FRAMEWORK_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/flutter_qcsdk/ios/Frameworks"'
+    'FRAMEWORK_SEARCH_PATHS' => '$(inherited) "${PODS_ROOT}/../.symlinks/plugins/flutter_qcsdk/ios/Frameworks"',
+    'OTHER_LDFLAGS' => '$(inherited) -ObjC'
   }
 end

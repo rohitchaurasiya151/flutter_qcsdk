@@ -22,6 +22,7 @@
   [registrar addMethodCallDelegate:instance channel:channel];
   [eventChannel setStreamHandler:instance];
   
+  [QCSDKManager shareInstance].debug = YES;
   [QCSDKManager shareInstance].delegate = instance;
   [QCCentralManager shared].delegate = instance;
 }
@@ -125,9 +126,12 @@
   }
   else if ([@"openWifiWithMode" isEqualToString:call.method]) {
     NSInteger modeVal = [call.arguments[@"mode"] integerValue];
+    NSLog(@"👓 [iOS QCSDK] openWifiWithMode called (mode: %ld)", (long)modeVal);
     [QCSDKCmdCreator openWifiWithMode:(QCOperatorDeviceMode)modeVal success:^(NSString *ssid, NSString *pwd) {
+      NSLog(@"👓 [iOS QCSDK] openWifiWithMode SUCCESS -> SSID: '%@', PWD: '%@'", ssid, pwd);
       result(@{@"ssid": ssid ?: @"", @"password": pwd ?: @""});
     } fail:^(NSInteger errCode) {
+      NSLog(@"⚠️ [iOS QCSDK] openWifiWithMode FAILED with errCode: %ld", (long)errCode);
       result([FlutterError errorWithCode:@"ERROR" message:@"Failed to open WiFi" details:@(errCode)]);
     }];
   }
@@ -148,14 +152,20 @@
     }];
   }
   else if ([@"getDeviceWifiIP" isEqualToString:call.method]) {
+    NSLog(@"👓 [iOS QCSDK] getDeviceWifiIP called");
     [QCSDKCmdCreator getDeviceWifiIPSuccess:^(NSString * _Nullable ipAddress) {
+      NSLog(@"👓 [iOS QCSDK] getDeviceWifiIP SUCCESS -> IP: %@", ipAddress);
       result(ipAddress);
     } failed:^{
+      NSLog(@"⚠️ [iOS QCSDK] getDeviceWifiIP FAILED");
       result([FlutterError errorWithCode:@"ERROR" message:@"Failed to get device WiFi IP" details:nil]);
     }];
   }
   else if ([@"getDeviceMedia" isEqualToString:call.method]) {
+    NSLog(@"👓 [iOS QCSDK] getDeviceMedia called");
     [QCSDKCmdCreator getDeviceMedia:^(NSInteger photo, NSInteger video, NSInteger audio, NSInteger totalSize) {
+      NSLog(@"👓 [iOS QCSDK] getDeviceMedia SUCCESS -> Photos: %ld, Videos: %ld, Audio: %ld, TotalSize: %ld bytes",
+            (long)photo, (long)video, (long)audio, (long)totalSize);
       result(@{
         @"photoCount": @(photo),
         @"videoCount": @(video),
@@ -163,6 +173,7 @@
         @"totalSize": @(totalSize)
       });
     } fail:^{
+      NSLog(@"⚠️ [iOS QCSDK] getDeviceMedia FAILED");
       result([FlutterError errorWithCode:@"ERROR" message:@"Failed to get device media count" details:nil]);
     }];
   }
@@ -380,8 +391,10 @@
     }];
   }
   else if ([@"startToDownloadMediaResource" isEqualToString:call.method]) {
+    NSLog(@"👓 [iOS QCSDK] startToDownloadMediaResource initiated");
     __weak typeof(self) weakSelf = self;
     [[QCSDKManager shareInstance] startToDownloadMediaResourceWithProgress:^(NSInteger receivedSize, NSInteger expectedSize, CGFloat progress) {
+      NSLog(@"👓 [iOS QCSDK] Download Progress: %ld / %ld bytes (%.1f%%)", (long)receivedSize, (long)expectedSize, progress * 100.0);
       [weakSelf sendEvent:@{
         @"type": @"downloadProgress",
         @"receivedSize": @(receivedSize),
@@ -389,10 +402,28 @@
         @"progress": @(progress)
       }];
     } completion:^(NSString * _Nullable filePath, NSError * _Nullable error, NSInteger index, NSInteger count) {
+      if (error) {
+        NSString *reason = @"";
+        switch (error.code) {
+          case 2000: reason = @"QCErrorCodeInvalidWifiOrPassword (WiFi or password is empty)"; break;
+          case 2001: reason = @"QCErrorCodeFailedToGetGlassesIP (iPhone not connected to glasses Wi-Fi hotspot)"; break;
+          case 2002: reason = @"QCErrorCodeFailedToGetAppIP (Failed to obtain iPhone IP address)"; break;
+          case 2003: reason = @"QCErrorCodeLocalNetworkNotAuthorized (iOS Local Network permission denied/missing)"; break;
+          case 2004: reason = @"QCErrorCodeDownloadConfigFileFailed (HTTP request to glasses config failed)"; break;
+          case 2005: reason = @"QCErrorCodeDownloadFileFailed (HTTP download of media file failed)"; break;
+          case 2006: reason = @"QCErrorCodeFileListEmpty (No media files on device)"; break;
+          default: reason = error.localizedDescription ?: @"Unknown error"; break;
+        }
+        NSLog(@"⚠️ [iOS QCSDK] Download Error: code=%ld, reason='%@', domain=%@, details=%@",
+              (long)error.code, reason, error.domain, error.userInfo);
+      } else {
+        NSLog(@"✅ [iOS QCSDK] Download File Success [%ld/%ld]: path='%@'",
+              (long)index + 1, (long)count, filePath ?: @"(empty completion)");
+      }
       [weakSelf sendEvent:@{
         @"type": @"downloadComplete",
         @"filePath": filePath ?: @"",
-        @"error": error.localizedDescription ?: @"",
+        @"error": error ? [NSString stringWithFormat:@"[%ld] %@", (long)error.code, error.localizedDescription ?: @""] : @"",
         @"index": @(index),
         @"count": @(count)
       }];

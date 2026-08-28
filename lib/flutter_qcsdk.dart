@@ -92,18 +92,31 @@ class FlutterQcsdk {
             });
             break;
           case 'downloadProgress':
+            final received = event['receivedSize'] as int? ?? 0;
+            final expected = event['expectedSize'] as int? ?? 0;
+            final prog = (event['progress'] as num?)?.toDouble() ?? 0.0;
+            debugPrint('👓 [SPECS SDK STREAM] Download Progress: $received / $expected (${(prog * 100).toStringAsFixed(1)}%)');
             _downloadProgressController.add({
-              'receivedSize': event['receivedSize'] as int? ?? 0,
-              'expectedSize': event['expectedSize'] as int? ?? 0,
-              'progress': event['progress'] as double? ?? 0.0,
+              'receivedSize': received,
+              'expectedSize': expected,
+              'progress': prog,
             });
             break;
           case 'downloadComplete':
+            final path = event['filePath'] as String? ?? '';
+            final err = event['error'] as String? ?? '';
+            final idx = event['index'] as int? ?? 0;
+            final total = event['count'] as int? ?? 0;
+            if (err.isNotEmpty) {
+              debugPrint('⚠️ [SPECS SDK STREAM] Download FAILED: $err');
+            } else {
+              debugPrint('✅ [SPECS SDK STREAM] Download Complete [$idx/$total]: $path');
+            }
             _downloadCompleteController.add({
-              'filePath': event['filePath'] as String? ?? '',
-              'error': event['error'] as String? ?? '',
-              'index': event['index'] as int? ?? 0,
-              'count': event['count'] as int? ?? 0,
+              'filePath': path,
+              'error': err,
+              'index': idx,
+              'count': total,
             });
             break;
           case 'wifiUpgradeProgress':
