@@ -359,23 +359,33 @@
     }];
   }
   else if ([@"setBTStatus" isEqualToString:call.method]) {
-    BOOL isOpen = [call.arguments[@"isOpen"] boolValue];
-    [QCSDKCmdCreator setBTStatus:isOpen finished:^(BOOL success, NSError * _Nullable error) {
-      if (success) {
-        result(nil);
-      } else {
-        result([FlutterError errorWithCode:@"ERROR" message:error.localizedDescription details:nil]);
-      }
-    }];
+    @try {
+      BOOL isOpen = [call.arguments[@"isOpen"] boolValue];
+      [QCSDKCmdCreator setBTStatus:isOpen finished:^(BOOL success, NSError * _Nullable error) {
+        if (success) {
+          result(nil);
+        } else {
+          result([FlutterError errorWithCode:@"ERROR" message:error.localizedDescription details:nil]);
+        }
+      }];
+    } @catch (NSException *exception) {
+      NSLog(@"⚠️ [iOS QCSDK] setBTStatus exception caught: %@", exception);
+      result(nil);
+    }
   }
   else if ([@"getBTStatus" isEqualToString:call.method]) {
-    [QCSDKCmdCreator getBTStatusWithFinished:^(BOOL success, NSError * _Nullable error) {
-      if (success) {
-        result(nil);
-      } else {
-        result([FlutterError errorWithCode:@"ERROR" message:error.localizedDescription details:nil]);
-      }
-    }];
+    @try {
+      [QCSDKCmdCreator getBTStatusWithFinished:^(BOOL success, NSError * _Nullable error) {
+        if (success) {
+          result(nil);
+        } else {
+          result([FlutterError errorWithCode:@"ERROR" message:error.localizedDescription details:nil]);
+        }
+      }];
+    } @catch (NSException *exception) {
+      NSLog(@"⚠️ [iOS QCSDK] getBTStatus exception caught (vendor bug in QCDFU_Utils): %@", exception);
+      result(nil);
+    }
   }
   else if ([@"stopAIChat" isEqualToString:call.method]) {
     [[QCSDKManager shareInstance] stopAIChat];
