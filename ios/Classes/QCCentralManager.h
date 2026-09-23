@@ -42,6 +42,7 @@ typedef NS_ENUM(NSInteger, QCBluetoothState) {
 @property (nonatomic, strong) NSDictionary<NSString *,id> *advertisementData;
 @property (nonatomic, strong) NSNumber *RSSI;
 @property (nonatomic, assign) BOOL isPaired;
+@property (nonatomic, assign) BOOL hasSpecsSignature;
 @end
 
 @protocol QCCentralManagerDelegate <NSObject>

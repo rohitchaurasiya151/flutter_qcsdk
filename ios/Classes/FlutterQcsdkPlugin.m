@@ -564,7 +564,8 @@
         @"identifier": per.peripheral.identifier.UUIDString ?: @"",
         @"mac": per.mac ?: @"",
         @"rssi": per.RSSI ?: @(0),
-        @"isPaired": @(per.isPaired)
+        @"isPaired": @(per.isPaired),
+        @"hasSpecsSignature": @(per.hasSpecsSignature)
       }];
     }
   }

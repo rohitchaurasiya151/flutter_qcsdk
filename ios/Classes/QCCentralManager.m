@@ -319,7 +319,27 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     if(peripheral.name.length == 0) return;
     NSString *mac = [self macFromAdvertisementData:advertisementData];
 
-    NSLog(@"Devices found:%@,mac:%@,id:%@",peripheral.name,mac,peripheral.identifier.UUIDString);
+    BOOL hasSpecsSignature = NO;
+    NSDictionary *serviceData = [advertisementData objectForKey:CBAdvertisementDataServiceDataKey];
+    if ([serviceData isKindOfClass:[NSDictionary class]]) {
+        for (CBUUID *uuid in serviceData.allKeys) {
+            if ([uuid.UUIDString.uppercaseString containsString:@"3802"]) {
+                hasSpecsSignature = YES;
+                break;
+            }
+        }
+    }
+    if (!hasSpecsSignature) {
+        NSData *manufacturerData = [advertisementData objectForKey:CBAdvertisementDataManufacturerDataKey];
+        if ([manufacturerData isKindOfClass:[NSData class]] && manufacturerData.length >= 2) {
+            const uint8_t *bytes = (const uint8_t *)manufacturerData.bytes;
+            if (bytes[0] == 0x34 && bytes[1] == 0x12) {
+                hasSpecsSignature = YES;
+            }
+        }
+    }
+
+    NSLog(@"Devices found:%@,mac:%@,id:%@,hasSpecsSignature:%d",peripheral.name,mac,peripheral.identifier.UUIDString, hasSpecsSignature);
     BOOL isExist = false;
     for (QCBlePeripheral *per in self.peripherals) {
         if([per.peripheral.identifier.UUIDString isEqual:peripheral.identifier.UUIDString]) {
@@ -327,6 +347,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
             per.mac = mac;
             per.advertisementData = advertisementData;
             per.RSSI = RSSI;
+            per.hasSpecsSignature = hasSpecsSignature;
             isExist = true;
             return;
         }
@@ -338,6 +359,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
         per.mac = mac;
         per.advertisementData = advertisementData;
         per.RSSI = RSSI;
+        per.hasSpecsSignature = hasSpecsSignature;
         [self.peripherals addObject:per];
     }
     

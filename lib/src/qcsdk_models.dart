@@ -62,6 +62,7 @@ class QCBleDevice {
   final String mac;
   final int rssi;
   final bool isPaired;
+  final bool hasSpecsSignature;
 
   QCBleDevice({
     required this.name,
@@ -69,6 +70,7 @@ class QCBleDevice {
     required this.mac,
     required this.rssi,
     required this.isPaired,
+    this.hasSpecsSignature = false,
   });
 
   factory QCBleDevice.fromMap(Map<dynamic, dynamic> map) {
@@ -78,6 +80,7 @@ class QCBleDevice {
       mac: map['mac'] as String? ?? '',
       rssi: map['rssi'] as int? ?? 0,
       isPaired: map['isPaired'] as bool? ?? false,
+      hasSpecsSignature: map['hasSpecsSignature'] as bool? ?? false,
     );
   }
 }

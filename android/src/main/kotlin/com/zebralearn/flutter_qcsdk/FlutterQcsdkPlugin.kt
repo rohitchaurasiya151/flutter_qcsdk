@@ -310,15 +310,22 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                     override fun onStart() {}
                     override fun onStop() {}
                     override fun onLeScan(device: BluetoothDevice?, rssi: Int, scanRecord: ByteArray?) {
-                        if (device != null && !device.name.isNullOrEmpty()) {
+                        if (device != null) {
                             val address = device.address ?: return
+                            val parsedName = extractLocalName(scanRecord)
+                            val name = if (!device.name.isNullOrEmpty()) device.name else parsedName
+                            if (name.isNullOrEmpty()) return
+
                             val isPaired = device.bondState == BluetoothDevice.BOND_BONDED
+                            val hasSpecsSignature = checkSpecsSignature(scanRecord)
+
                             val deviceMap = mapOf(
-                                "name" to (device.name ?: "Unknown Device"),
+                                "name" to name,
                                 "identifier" to address,
                                 "mac" to address,
                                 "rssi" to rssi,
-                                "isPaired" to isPaired
+                                "isPaired" to isPaired,
+                                "hasSpecsSignature" to hasSpecsSignature
                             )
                             scannedDevices[address] = deviceMap
                             mainHandler.post {
@@ -732,6 +739,9 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                     dir.mkdirs()
                 }
 
+                var currentBatchIndex = 0
+                var totalBatchFiles = 0
+
                 val control = GlassesControl.getInstance(application!!)
                 if (control != null) {
                     control.initGlasses(storagePath)
@@ -741,11 +751,15 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                         override fun eisError(fileName: String, sourcePath: String, errorInfo: String) {}
 
                         override fun fileCount(index: Int, total: Int) {
+                            currentBatchIndex = index
+                            totalBatchFiles = total
                             mainHandler.post {
                                 eventSink?.success(mapOf(
                                     "type" to "downloadProgress",
                                     "receivedSize" to index,
                                     "expectedSize" to total,
+                                    "index" to index,
+                                    "count" to total,
                                     "progress" to (index.toDouble() / total.toDouble())
                                 ))
                             }
@@ -757,8 +771,8 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                                     "type" to "downloadComplete",
                                     "filePath" to "",
                                     "error" to "",
-                                    "index" to 0,
-                                    "count" to 0
+                                    "index" to totalBatchFiles,
+                                    "count" to totalBatchFiles
                                 ))
                             }
                         }
@@ -769,8 +783,8 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                                     "type" to "downloadComplete",
                                     "filePath" to "",
                                     "error" to "Download error (type $errorType)",
-                                    "index" to 0,
-                                    "count" to 0
+                                    "index" to currentBatchIndex,
+                                    "count" to totalBatchFiles
                                 ))
                             }
                         }
@@ -792,8 +806,8 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                                     "type" to "downloadComplete",
                                     "filePath" to (entity.filePath ?: ""),
                                     "error" to "",
-                                    "index" to 0,
-                                    "count" to 0
+                                    "index" to currentBatchIndex,
+                                    "count" to totalBatchFiles
                                 ))
                             }
                         }
@@ -943,5 +957,58 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                 }
             }
         }
+    }
+
+    private fun checkSpecsSignature(scanRecord: ByteArray?): Boolean {
+        if (scanRecord == null || scanRecord.isEmpty()) return false
+        var i = 0
+        while (i < scanRecord.size) {
+            val length = scanRecord[i].toInt() and 0xFF
+            if (length == 0 || i + length >= scanRecord.size) break
+            val type = scanRecord[i + 1].toInt() and 0xFF
+
+            // AD Type 0x16 = Service Data (16-bit UUID)
+            // Specs firmware uses 0x3802 (0x02, 0x38 in little-endian)
+            if (type == 0x16 && length >= 3) {
+                val uuidLo = scanRecord[i + 2].toInt() and 0xFF
+                val uuidHi = scanRecord[i + 3].toInt() and 0xFF
+                if (uuidLo == 0x02 && uuidHi == 0x38) {
+                    return true
+                }
+            }
+
+            // AD Type 0xFF = Manufacturer Specific Data
+            // Specs firmware uses Company ID 0x1234 (0x34, 0x12 in little-endian)
+            if (type == 0xFF && length >= 3) {
+                val compLo = scanRecord[i + 2].toInt() and 0xFF
+                val compHi = scanRecord[i + 3].toInt() and 0xFF
+                if (compLo == 0x34 && compHi == 0x12) {
+                    return true
+                }
+            }
+
+            i += length + 1
+        }
+        return false
+    }
+
+    private fun extractLocalName(scanRecord: ByteArray?): String? {
+        if (scanRecord == null || scanRecord.isEmpty()) return null
+        var i = 0
+        while (i < scanRecord.size) {
+            val length = scanRecord[i].toInt() and 0xFF
+            if (length == 0 || i + length >= scanRecord.size) break
+            val type = scanRecord[i + 1].toInt() and 0xFF
+            // AD Type 0x08 (Shortened Local Name) or 0x09 (Complete Local Name)
+            if ((type == 0x08 || type == 0x09) && length > 1) {
+                return try {
+                    String(scanRecord, i + 2, length - 1, Charsets.UTF_8).trim()
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            i += length + 1
+        }
+        return null
     }
 }
