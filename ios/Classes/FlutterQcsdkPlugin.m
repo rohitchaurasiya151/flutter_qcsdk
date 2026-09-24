@@ -440,7 +440,7 @@
     }];
     result(nil);
   }
-  else if ([@"openBluetoothSettings" isEqualToString:call.method]) {
+  else if ([@"openBluetoothSettings" isEqualToString:call.method] || [@"openLocationSettings" isEqualToString:call.method]) {
     dispatch_async(dispatch_get_main_queue(), ^{
       NSURL *url = [NSURL URLWithString:UIApplicationOpenSettingsURLString];
       if (url && [[UIApplication sharedApplication] canOpenURL:url]) {

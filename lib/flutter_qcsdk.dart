@@ -364,4 +364,9 @@ class FlutterQcsdk {
   static Future<void> openBluetoothSettings() async {
     await _channel.invokeMethod('openBluetoothSettings');
   }
+
+  /// Open native Location / GPS settings screen (Android only)
+  static Future<void> openLocationSettings() async {
+    await _channel.invokeMethod('openLocationSettings');
+  }
 }

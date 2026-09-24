@@ -266,6 +266,16 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                     result.error("ERROR", e.message, null)
                 }
             }
+            "openLocationSettings" -> {
+                try {
+                    val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    context?.startActivity(intent)
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.error("ERROR", e.message, null)
+                }
+            }
             "getDeviceState" -> {
                 val isConnected = try {
                     BleOperateManager.getInstance().isConnected
