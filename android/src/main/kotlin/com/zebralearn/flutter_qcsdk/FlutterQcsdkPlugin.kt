@@ -456,13 +456,6 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                         val totalCount = photoCount + videoCount + audioCount
                         Log.i("FlutterQcsdk", "👓 [SPECS MEDIA INFO] Total items on glasses: $totalCount -> Photos: $photoCount, Videos: $videoCount, Audio: $audioCount")
                         mainHandler.post {
-                            eventSink?.success(mapOf(
-                                "type" to "mediaUpdate",
-                                "photoCount" to photoCount,
-                                "videoCount" to videoCount,
-                                "audioCount" to audioCount,
-                                "mediaType" to 0
-                            ))
                             result.success(mapOf(
                                 "photoCount" to photoCount,
                                 "videoCount" to videoCount,
@@ -478,8 +471,18 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
             }
             "deleteAllMedias" -> {
                 val cmdData = byteArrayOf(0x02, 0x05)
-                LargeDataHandler.getInstance().glassesControl(cmdData) { _, _ ->
-                    mainHandler.post { result.success(null) }
+                LargeDataHandler.getInstance().glassesControl(cmdData) { _, response ->
+                    Log.i("FlutterQcsdk", "🧹 [SPECS DELETE ALL] glassesControl(0x02, 0x05) response: ${response?.errorCode}")
+                    mainHandler.post {
+                        eventSink?.success(mapOf(
+                            "type" to "mediaUpdate",
+                            "photoCount" to 0,
+                            "videoCount" to 0,
+                            "audioCount" to 0,
+                            "mediaType" to 0
+                        ))
+                        result.success(null)
+                    }
                 }
             }
             "deleteMedia" -> {
