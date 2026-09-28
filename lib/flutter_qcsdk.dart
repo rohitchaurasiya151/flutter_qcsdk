@@ -13,6 +13,15 @@ class FlutterQcsdk {
 
   static StreamSubscription? _eventSubscription;
 
+  static QCBluetoothState _currentBluetoothState = QCBluetoothState.unknown;
+  static QCDeviceState _currentDeviceState = QCDeviceState.unknown;
+
+  /// Cached last-known Bluetooth state from SDK
+  static QCBluetoothState get currentBluetoothState => _currentBluetoothState;
+
+  /// Cached last-known device connection state from SDK
+  static QCDeviceState get currentDeviceState => _currentDeviceState;
+
   // Stream Controllers
   static final _deviceStateController = StreamController<QCDeviceState>.broadcast();
   static final _bluetoothStateController = StreamController<QCBluetoothState>.broadcast();
@@ -49,11 +58,15 @@ class FlutterQcsdk {
             break;
           case 'deviceState':
             final int stateVal = event['state'] as int? ?? 0;
-            _deviceStateController.add(QCDeviceState.fromValue(stateVal));
+            final ds = QCDeviceState.fromValue(stateVal);
+            _currentDeviceState = ds;
+            _deviceStateController.add(ds);
             break;
           case 'bluetoothState':
             final int stateVal = event['state'] as int? ?? 0;
-            _bluetoothStateController.add(QCBluetoothState.fromValue(stateVal));
+            final bs = QCBluetoothState.fromValue(stateVal);
+            _currentBluetoothState = bs;
+            _bluetoothStateController.add(bs);
             break;
           case 'batteryLevel':
             _batteryController.add({
