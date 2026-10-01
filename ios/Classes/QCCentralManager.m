@@ -109,7 +109,12 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     [self stopScan];
     [self.peripherals removeAllObjects];
     
-    NSArray <CBUUID*>*uuids = @[[CBUUID UUIDWithString:QCSDKSERVERUUID1],[CBUUID UUIDWithString:QCSDKSERVERUUID2]];
+    NSMutableArray <CBUUID*>*uuids = [NSMutableArray array];
+    if (QCSDKSERVERUUID1.length > 0) [uuids addObject:[CBUUID UUIDWithString:QCSDKSERVERUUID1]];
+    if (QCSDKSERVERUUID2.length > 0) [uuids addObject:[CBUUID UUIDWithString:QCSDKSERVERUUID2]];
+    [uuids addObject:[CBUUID UUIDWithString:@"3802"]];
+    [uuids addObject:[CBUUID UUIDWithString:@"180A"]];
+    
     NSArray *connectedP = [self retrieveConnectPeripheral:uuids];
     NSMutableArray * tempAray = [[NSMutableArray alloc] init];
     for (CBPeripheral *per in connectedP) {
@@ -123,16 +128,18 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     [self.peripherals addObjectsFromArray:tempAray];
     
     if([connectedP count] > 0) {
-        [self.peripherals sortedArrayUsingComparator:^NSComparisonResult(QCBlePeripheral *  _Nonnull obj1, QCBlePeripheral *  _Nonnull obj2) {
-            return NSOrderedSame;
-        }];
         if(self.delegate && [self.delegate respondsToSelector:@selector(didScanPeripherals:)]) {
             [self.delegate didScanPeripherals:self.peripherals];
         }
     }
     
     NSDictionary *option = @{CBCentralManagerScanOptionAllowDuplicatesKey : [NSNumber numberWithBool:NO]};
-    [_centerManager scanForPeripheralsWithServices:nil options:option];
+    if (_centerManager.state == CBManagerStatePoweredOn) {
+        NSLog(@"🚀 [iOS BLE] scanForPeripheralsWithServices started.");
+        [_centerManager scanForPeripheralsWithServices:nil options:option];
+    } else {
+        NSLog(@"⚠️ [iOS BLE] CBCentralManager state is %ld (not PoweredOn yet). Will scan on PoweredOn.", (long)_centerManager.state);
+    }
     
     [self stopTimer];
     self.reconTimer = [NSTimer scheduledTimerWithTimeInterval:self.scanTimeout target:self selector:@selector(stopScanFinishTimer:) userInfo:nil repeats:NO];
@@ -308,24 +315,29 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
         self.deviceState = QCStateUnbind;
     }
     
-    if (bleState == QCBluetoothStatePoweredOn && self.deviceState == QCStateConnecting) {
-        [self startToReconnect];
+    if (bleState == QCBluetoothStatePoweredOn) {
+        if (self.reconTimer != nil && [self.reconTimer isValid]) {
+            NSLog(@"🚀 [iOS BLE] CBCentralManager became PoweredOn during active scan. Starting scan...");
+            NSDictionary *option = @{CBCentralManagerScanOptionAllowDuplicatesKey : [NSNumber numberWithBool:NO]};
+            [_centerManager scanForPeripheralsWithServices:nil options:option];
+        } else if (self.deviceState == QCStateConnecting) {
+            [self startToReconnect];
+        }
     }
 }
 
 - (void)centralManager:(CBCentralManager *)central didDiscoverPeripheral:(CBPeripheral *)peripheral advertisementData:(NSDictionary<NSString *,id> *)advertisementData RSSI:(NSNumber *)RSSI {
     
-//    if(![peripheral.name.lowercaseString hasPrefix:@"o_"]) {
-//        return;
-//    }
-    if(peripheral.name.length == 0) return;
+    NSString *advertisedName = [advertisementData objectForKey:CBAdvertisementDataLocalNameKey];
+    NSString *name = (peripheral.name.length > 0) ? peripheral.name : (advertisedName ?: @"");
     NSString *mac = [self macFromAdvertisementData:advertisementData];
 
     BOOL hasSpecsSignature = NO;
     NSDictionary *serviceData = [advertisementData objectForKey:CBAdvertisementDataServiceDataKey];
     if ([serviceData isKindOfClass:[NSDictionary class]]) {
         for (CBUUID *uuid in serviceData.allKeys) {
-            if ([uuid.UUIDString.uppercaseString containsString:@"3802"]) {
+            NSString *uuidUpper = uuid.UUIDString.uppercaseString;
+            if ([uuidUpper containsString:@"3802"] || [uuidUpper containsString:@"3801"] || [uuidUpper containsString:@"180A"]) {
                 hasSpecsSignature = YES;
                 break;
             }
@@ -335,13 +347,18 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
         NSData *manufacturerData = [advertisementData objectForKey:CBAdvertisementDataManufacturerDataKey];
         if ([manufacturerData isKindOfClass:[NSData class]] && manufacturerData.length >= 2) {
             const uint8_t *bytes = (const uint8_t *)manufacturerData.bytes;
-            if (bytes[0] == 0x34 && bytes[1] == 0x12) {
+            if ((bytes[0] == 0x34 && bytes[1] == 0x12) || (bytes[0] == 0x12 && bytes[1] == 0x34)) {
                 hasSpecsSignature = YES;
             }
         }
     }
 
-    NSLog(@"Devices found:%@,mac:%@,id:%@,hasSpecsSignature:%d",peripheral.name,mac,peripheral.identifier.UUIDString, hasSpecsSignature);
+    if (name.length == 0 && !hasSpecsSignature) {
+        return;
+    }
+
+    NSLog(@"👓 [iOS BLE] Devices found: '%@' (advName: '%@'), mac: '%@', id: %@, hasSpecsSignature: %d, RSSI: %@",
+          peripheral.name, advertisedName, mac, peripheral.identifier.UUIDString, hasSpecsSignature, RSSI);
     BOOL isExist = false;
     for (QCBlePeripheral *per in self.peripherals) {
         if([per.peripheral.identifier.UUIDString isEqual:peripheral.identifier.UUIDString]) {
@@ -351,7 +368,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
             per.RSSI = RSSI;
             per.hasSpecsSignature = hasSpecsSignature;
             isExist = true;
-            return;
+            break;
         }
     }
     

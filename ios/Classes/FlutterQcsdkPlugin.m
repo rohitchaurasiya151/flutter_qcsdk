@@ -1,6 +1,8 @@
 #import "FlutterQcsdkPlugin.h"
 #import <QCSDK/QCSDK.h>
 #import "QCCentralManager.h"
+#import <NetworkExtension/NetworkExtension.h>
+
 
 @interface FlutterQcsdkPlugin () <QCCentralManagerDelegate, QCSDKManagerDelegate, FlutterStreamHandler>
 @property (nonatomic, strong) FlutterEventSink eventSink;
@@ -125,6 +127,41 @@
     NSLog(@"👓 [iOS QCSDK] openWifiWithMode called (mode: %ld)", (long)modeVal);
     [QCSDKCmdCreator openWifiWithMode:(QCOperatorDeviceMode)modeVal success:^(NSString *ssid, NSString *pwd) {
       NSLog(@"👓 [iOS QCSDK] openWifiWithMode SUCCESS -> SSID: '%@', PWD: '%@'", ssid, pwd);
+      
+      @try {
+        if ([QCSDKManager shareInstance]) {
+          [[QCSDKManager shareInstance] setValue:ssid forKey:@"wifiName"];
+          [[QCSDKManager shareInstance] setValue:pwd forKey:@"wifiPassowrd"];
+        }
+      } @catch (NSException *ex) {
+        NSLog(@"⚠️ [iOS QCSDK] Setting wifi credentials on QCSDKManager notice: %@", ex);
+      }
+      
+      if (@available(iOS 11.0, *)) {
+        if (ssid && ssid.length > 0) {
+          NSLog(@"👓 [iOS QCSDK] Applying NEHotspotConfiguration for SSID: '%@'...", ssid);
+          NEHotspotConfiguration *config = nil;
+          if (pwd && pwd.length > 0) {
+            config = [[NEHotspotConfiguration alloc] initWithSSID:ssid passphrase:pwd isWEP:NO];
+          } else {
+            config = [[NEHotspotConfiguration alloc] initWithSSID:ssid];
+          }
+          config.joinOnce = YES;
+          [[NEHotspotConfigurationManager sharedManager] applyConfiguration:config completionHandler:^(NSError * _Nullable error) {
+            if (error) {
+              if (error.code == 8) { // NEHotspotConfigurationErrorAlreadyAssociated
+                NSLog(@"✅ [iOS NEHotspot] Already connected to Wi-Fi SSID: '%@'", ssid);
+              } else {
+                NSLog(@"⚠️ [iOS NEHotspot] applyConfiguration note: code=%ld, reason=%@", (long)error.code, error.localizedDescription);
+              }
+            } else {
+              NSLog(@"✅ [iOS NEHotspot] Successfully joined Wi-Fi SSID: '%@'", ssid);
+            }
+            result(@{@"ssid": ssid ?: @"", @"password": pwd ?: @""});
+          }];
+          return;
+        }
+      }
       result(@{@"ssid": ssid ?: @"", @"password": pwd ?: @""});
     } fail:^(NSInteger errCode) {
       NSLog(@"⚠️ [iOS QCSDK] openWifiWithMode FAILED with errCode: %ld", (long)errCode);
@@ -560,8 +597,12 @@
   for (QCBlePeripheral *per in peripheralArr) {
     if (per.peripheral.identifier.UUIDString) {
       self.scannedPeripherals[per.peripheral.identifier.UUIDString] = per.peripheral;
+      NSString *deviceName = per.peripheral.name;
+      if (!deviceName || deviceName.length == 0) {
+        deviceName = [per.advertisementData objectForKey:CBAdvertisementDataLocalNameKey];
+      }
       [list addObject:@{
-        @"name": per.peripheral.name ?: @"Unknown Device",
+        @"name": deviceName ?: @"Smart Specs",
         @"identifier": per.peripheral.identifier.UUIDString ?: @"",
         @"mac": per.mac ?: @"",
         @"rssi": per.RSSI ?: @(0),
