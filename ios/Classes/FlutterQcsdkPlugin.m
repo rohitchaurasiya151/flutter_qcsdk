@@ -59,16 +59,23 @@
     result(nil);
   }
   else if ([@"getDeviceState" isEqualToString:call.method]) {
+    CBPeripheral *peripheral = [QCCentralManager shared].connectedPeripheral;
     QCState state = [QCCentralManager shared].deviceState;
+    if (state == QCStateConnected && (peripheral == nil || peripheral.state != CBPeripheralStateConnected)) {
+      state = QCStateDisconnected;
+    }
     result(@(state));
   }
   else if ([@"isDeviceConnected" isEqualToString:call.method]) {
-    BOOL isConnected = ([QCCentralManager shared].deviceState == QCStateConnected);
+    CBPeripheral *peripheral = [QCCentralManager shared].connectedPeripheral;
+    BOOL isConnected = (peripheral != nil && 
+                        peripheral.state == CBPeripheralStateConnected && 
+                        [QCCentralManager shared].deviceState == QCStateConnected);
     result(@(isConnected));
   }
   else if ([@"getConnectedDevice" isEqualToString:call.method]) {
     CBPeripheral *peripheral = [QCCentralManager shared].connectedPeripheral;
-    if (peripheral && [QCCentralManager shared].deviceState == QCStateConnected) {
+    if (peripheral && peripheral.state == CBPeripheralStateConnected && [QCCentralManager shared].deviceState == QCStateConnected) {
       NSString *uuid = peripheral.identifier.UUIDString ?: @"";
       NSString *name = peripheral.name ?: @"Smart Specs";
       result(@{
@@ -79,18 +86,7 @@
         @"isPaired": @(YES)
       });
     } else {
-      NSString *uuid = [[NSUserDefaults standardUserDefaults] objectForKey:@"QCLastConnectedIdentifier"];
-      if (uuid && uuid.length > 0 && [QCCentralManager shared].deviceState == QCStateConnected) {
-        result(@{
-          @"name": @"Smart Specs",
-          @"identifier": uuid,
-          @"mac": uuid,
-          @"rssi": @(0),
-          @"isPaired": @(YES)
-        });
-      } else {
-        result(nil);
-      }
+      result(nil);
     }
   }
   else if ([@"connect" isEqualToString:call.method]) {
@@ -475,9 +471,14 @@
         @"type": @"bluetoothState",
         @"state": @([QCCentralManager shared].bleState)
       });
+      CBPeripheral *per = [QCCentralManager shared].connectedPeripheral;
+      QCState devState = [QCCentralManager shared].deviceState;
+      if (devState == QCStateConnected && (per == nil || per.state != CBPeripheralStateConnected)) {
+        devState = QCStateDisconnected;
+      }
       self.eventSink(@{
         @"type": @"deviceState",
-        @"state": @([QCCentralManager shared].deviceState)
+        @"state": @(devState)
       });
     }
   });

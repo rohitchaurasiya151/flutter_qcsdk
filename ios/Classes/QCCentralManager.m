@@ -203,6 +203,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
         } @catch (NSException *e) {
             NSLog(@"warn: 取消设备(%@)连接时出现异常", self.connectedPeripheral.name);
         }
+        self.connectedPeripheral = nil;
     }
     self.deviceState = QCStateDisconnected;
 }
@@ -216,13 +217,14 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
         } @catch (NSException *e) {
             NSLog(@"warn: 取消设备(%@)连接时出现异常", self.connectedPeripheral.name);
         }
+        self.connectedPeripheral = nil;
     }
     
     [[QCSDKManager shareInstance] removeAllPeripheral];
     [[NSUserDefaults standardUserDefaults] removeObjectForKey:QCLastConnectedIdentifier];
     [[NSUserDefaults standardUserDefaults] synchronize];
     
-    self.deviceState = QCStateDisconnecting;
+    self.deviceState = QCStateUnbind;
 }
 
 
@@ -400,6 +402,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 - (void)centralManager:(CBCentralManager *)central didDisconnectPeripheral:(CBPeripheral *)peripheral error:(nullable NSError *)error {
     NSLog(@"Device(%@)didDisconnect，err: %@", peripheral.name, error);
     
+    self.connectedPeripheral = nil;
     if(self.deviceState == QCStateDisconnecting) { //unbinding device
         self.deviceState = QCStateUnbind;
     }
@@ -407,6 +410,9 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
         self.deviceState = QCStateDisconnected;
     }
     else {
+        // Explicitly broadcast disconnected state first
+        self.deviceState = QCStateDisconnected;
+        
         //reconnect device
         [[QCSDKManager shareInstance] removeAllPeripheral];
         self.deviceState = QCStateConnecting;
