@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.provider.Settings
+import android.net.wifi.WifiManager
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Handler
@@ -274,6 +275,25 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                     result.success(true)
                 } catch (e: Exception) {
                     result.error("ERROR", e.message, null)
+                }
+            }
+            "openWifiSettings" -> {
+                try {
+                    val intent = Intent(Settings.ACTION_WIFI_SETTINGS)
+                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    context?.startActivity(intent)
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.error("ERROR", e.message, null)
+                }
+            }
+            "isWifiEnabled" -> {
+                try {
+                    val wifiManager = context?.applicationContext?.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                    val isEnabled = wifiManager?.isWifiEnabled ?: false
+                    result.success(isEnabled)
+                } catch (e: Exception) {
+                    result.success(true)
                 }
             }
             "getDeviceState" -> {

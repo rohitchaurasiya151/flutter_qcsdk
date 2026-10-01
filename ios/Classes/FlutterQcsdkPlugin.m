@@ -473,7 +473,9 @@
     }];
     result(nil);
   }
-  else if ([@"openBluetoothSettings" isEqualToString:call.method] || [@"openLocationSettings" isEqualToString:call.method]) {
+  else if ([@"openBluetoothSettings" isEqualToString:call.method] || 
+           [@"openLocationSettings" isEqualToString:call.method] || 
+           [@"openWifiSettings" isEqualToString:call.method]) {
     dispatch_async(dispatch_get_main_queue(), ^{
       NSURL *url = [NSURL URLWithString:UIApplicationOpenSettingsURLString];
       if (url && [[UIApplication sharedApplication] canOpenURL:url]) {
@@ -492,6 +494,9 @@
         result([FlutterError errorWithCode:@"ERROR" message:@"Cannot open settings URL" details:nil]);
       }
     });
+  }
+  else if ([@"isWifiEnabled" isEqualToString:call.method]) {
+    result(@(YES));
   }
   else {
     result(FlutterMethodNotImplemented);

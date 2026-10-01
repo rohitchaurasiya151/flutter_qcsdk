@@ -382,4 +382,19 @@ class FlutterQcsdk {
   static Future<void> openLocationSettings() async {
     await _channel.invokeMethod('openLocationSettings');
   }
+
+  /// Open native Wi-Fi settings screen (Android only)
+  static Future<void> openWifiSettings() async {
+    await _channel.invokeMethod('openWifiSettings');
+  }
+
+  /// Check whether Wi-Fi is enabled on the device
+  static Future<bool> isWifiEnabled() async {
+    try {
+      final bool? isEnabled = await _channel.invokeMethod<bool>('isWifiEnabled');
+      return isEnabled ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
 }
