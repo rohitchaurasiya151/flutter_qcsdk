@@ -378,6 +378,19 @@ class FlutterQcsdk {
     await _channel.invokeMethod('openBluetoothSettings');
   }
 
+  /// Request the system to enable Bluetooth via in-app system prompt (Android only).
+  ///
+  /// Displays the native Android dialog allowing the user to turn on Bluetooth
+  /// directly without leaving the app. Returns true if request dispatched successfully.
+  static Future<bool> requestEnableBluetooth() async {
+    try {
+      final bool? res = await _channel.invokeMethod<bool>('requestEnableBluetooth');
+      return res ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Open native Location / GPS settings screen (Android only)
   static Future<void> openLocationSettings() async {
     await _channel.invokeMethod('openLocationSettings');

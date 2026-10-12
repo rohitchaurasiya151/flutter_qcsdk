@@ -473,6 +473,10 @@
     }];
     result(nil);
   }
+  else if ([@"requestEnableBluetooth" isEqualToString:call.method]) {
+    // iOS does not allow programmatically enabling Bluetooth from apps
+    result(@(NO));
+  }
   else if ([@"openBluetoothSettings" isEqualToString:call.method] || 
            [@"openLocationSettings" isEqualToString:call.method] || 
            [@"openWifiSettings" isEqualToString:call.method]) {

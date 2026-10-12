@@ -1,5 +1,6 @@
 package com.zebralearn.flutter_qcsdk
 
+import android.app.Activity
 import android.app.Application
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
@@ -16,6 +17,8 @@ import android.os.Looper
 import android.util.Log
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -50,11 +53,12 @@ import com.oudmon.wifi.bean.GlassAlbumEntity
 import java.io.File
 import java.util.Arrays
 
-class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamHandler {
+class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamHandler, ActivityAware {
     private val TAG = "FlutterQcsdkPlugin"
     private lateinit var channel : MethodChannel
     private lateinit var eventChannel: EventChannel
     private var context: Context? = null
+    private var activity: Activity? = null
     private var application: Application? = null
     private var eventSink: EventChannel.EventSink? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -84,6 +88,22 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
         context?.let { cleanupSdk(it) }
         context = null
         application = null
+    }
+
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        activity = binding.activity
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() {
+        activity = null
+    }
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        activity = binding.activity
+    }
+
+    override fun onDetachedFromActivity() {
+        activity = null
     }
 
     private fun initializeSdk(context: Context) {
@@ -257,6 +277,24 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
     override fun onMethodCall(call: MethodCall, rawResult: Result) {
         val result = SafeResult(rawResult)
         when (call.method) {
+            "requestEnableBluetooth" -> {
+                try {
+                    val act = activity
+                    if (act != null) {
+                        val intent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+                        act.startActivity(intent)
+                        result.success(true)
+                    } else {
+                        val intent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        context?.startActivity(intent)
+                        result.success(true)
+                    }
+                } catch (e: Exception) {
+                    result.error("ERROR", e.message, null)
+                }
+            }
             "openBluetoothSettings" -> {
                 try {
                     val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
