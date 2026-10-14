@@ -4,6 +4,8 @@ import android.app.Activity
 import android.app.Application
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothProfile
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -141,6 +143,7 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                     if (state == BluetoothAdapter.STATE_OFF) {
                         BleOperateManager.getInstance().setBluetoothTurnOff(false)
                         BleOperateManager.getInstance().disconnect()
+                        BleOperateManager.getInstance().isReady = false
                         mainHandler.post {
                             eventSink?.success(mapOf(
                                 "type" to "deviceState",
@@ -153,6 +156,25 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                         if (!address.isNullOrEmpty()) {
                             BleOperateManager.getInstance().reConnectMac = address
                             BleOperateManager.getInstance().connectDirectly(address)
+                        }
+                    }
+                } else if (BluetoothDevice.ACTION_ACL_DISCONNECTED == action) {
+                    val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                    }
+                    val targetAddress = DeviceManager.getInstance().deviceAddress
+                    if (device != null && !targetAddress.isNullOrEmpty() && device.address.equals(targetAddress, ignoreCase = true)) {
+                        Log.i(TAG, "👓 [SYSTEM BLE] ACL disconnected for specs device: ${device.address}")
+                        BleOperateManager.getInstance().isReady = false
+                        BleOperateManager.getInstance().disconnect()
+                        mainHandler.post {
+                            eventSink?.success(mapOf(
+                                "type" to "deviceState",
+                                "state" to 5 // disconnected
+                            ))
                         }
                     }
                 }
@@ -240,6 +262,11 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                     events?.success(mapOf(
                         "type" to "deviceState",
                         "state" to 3 // connected
+                    ))
+                } else {
+                    events?.success(mapOf(
+                        "type" to "deviceState",
+                        "state" to 5 // disconnected
                     ))
                 }
             } catch (e: Exception) {
@@ -426,7 +453,14 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                 }
             }
             "disconnect" -> {
+                BleOperateManager.getInstance().isReady = false
                 BleOperateManager.getInstance().disconnect()
+                mainHandler.post {
+                    eventSink?.success(mapOf(
+                        "type" to "deviceState",
+                        "state" to 5 // disconnected
+                    ))
+                }
                 result.success(null)
             }
             "unpair" -> {
@@ -939,6 +973,8 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                     ))
                 }
             } else {
+                Log.i(TAG, "👓 [BLE DISCONNECTED] Device disconnected via connectStatue")
+                BleOperateManager.getInstance().isReady = false
                 mainHandler.post {
                     eventSink?.success(mapOf(
                         "type" to "deviceState",
@@ -949,6 +985,23 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
         }
 
         override fun onServiceDiscovered() {
+            val isConnected = try {
+                BleOperateManager.getInstance().isConnected
+            } catch (e: Exception) {
+                false
+            }
+            if (!isConnected) {
+                Log.w(TAG, "👓 [BLE] onServiceDiscovered called but BleOperateManager.isConnected is false. Emitting disconnected state.")
+                BleOperateManager.getInstance().isReady = false
+                mainHandler.post {
+                    eventSink?.success(mapOf(
+                        "type" to "deviceState",
+                        "state" to 5 // disconnected
+                    ))
+                }
+                return
+            }
+
             LargeDataHandler.getInstance().initEnable()
             BleOperateManager.getInstance().isReady = true
             mainHandler.post {
@@ -956,6 +1009,20 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                     "type" to "deviceState",
                     "state" to 3 // connected (fully initialized)
                 ))
+            }
+        }
+
+        override fun bleStatus(status: Int, newState: Int) {
+            super.bleStatus(status, newState)
+            if (newState == BluetoothProfile.STATE_DISCONNECTED || (status != BluetoothGatt.GATT_SUCCESS && !BleOperateManager.getInstance().isConnected)) {
+                Log.i(TAG, "👓 [BLE STATUS] Disconnect status: status=$status, newState=$newState")
+                BleOperateManager.getInstance().isReady = false
+                mainHandler.post {
+                    eventSink?.success(mapOf(
+                        "type" to "deviceState",
+                        "state" to 5 // disconnected
+                    ))
+                }
             }
         }
 
