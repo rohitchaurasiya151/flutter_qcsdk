@@ -116,6 +116,7 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
         BleOperateManager.getInstance(app)
         BleOperateManager.getInstance().setApplication(app)
         BleOperateManager.getInstance().init()
+        BleOperateManager.getInstance().setNeedConnect(false)
 
         // Register local BLE broadcast receiver
         myBleReceiver = PluginBleReceiver()
@@ -141,9 +142,11 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                         ))
                     }
                     if (state == BluetoothAdapter.STATE_OFF) {
+                        BleOperateManager.getInstance().setNeedConnect(false)
                         BleOperateManager.getInstance().setBluetoothTurnOff(false)
                         BleOperateManager.getInstance().disconnect()
                         BleOperateManager.getInstance().isReady = false
+                        mainHandler.removeCallbacksAndMessages(null)
                         mainHandler.post {
                             eventSink?.success(mapOf(
                                 "type" to "deviceState",
@@ -152,11 +155,7 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                         }
                     } else if (state == BluetoothAdapter.STATE_ON) {
                         BleOperateManager.getInstance().setBluetoothTurnOff(true)
-                        val address = DeviceManager.getInstance().deviceAddress
-                        if (!address.isNullOrEmpty()) {
-                            BleOperateManager.getInstance().reConnectMac = address
-                            BleOperateManager.getInstance().connectDirectly(address)
-                        }
+                        BleOperateManager.getInstance().setNeedConnect(false)
                     }
                 } else if (BluetoothDevice.ACTION_ACL_DISCONNECTED == action) {
                     val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -168,8 +167,10 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                     val targetAddress = DeviceManager.getInstance().deviceAddress
                     if (device != null && !targetAddress.isNullOrEmpty() && device.address.equals(targetAddress, ignoreCase = true)) {
                         Log.i(TAG, "👓 [SYSTEM BLE] ACL disconnected for specs device: ${device.address}")
+                        BleOperateManager.getInstance().setNeedConnect(false)
                         BleOperateManager.getInstance().isReady = false
                         BleOperateManager.getInstance().disconnect()
+                        mainHandler.removeCallbacksAndMessages(null)
                         mainHandler.post {
                             eventSink?.success(mapOf(
                                 "type" to "deviceState",
@@ -445,6 +446,7 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
             "connect" -> {
                 val identifier = call.argument<String>("identifier")
                 if (identifier != null) {
+                    BleOperateManager.getInstance().setNeedConnect(false)
                     DeviceManager.getInstance().deviceAddress = identifier
                     BleOperateManager.getInstance().connectDirectly(identifier)
                     result.success(null)
@@ -453,8 +455,10 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                 }
             }
             "disconnect" -> {
+                BleOperateManager.getInstance().setNeedConnect(false)
                 BleOperateManager.getInstance().isReady = false
                 BleOperateManager.getInstance().disconnect()
+                mainHandler.removeCallbacksAndMessages(null)
                 mainHandler.post {
                     eventSink?.success(mapOf(
                         "type" to "deviceState",
@@ -464,9 +468,11 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                 result.success(null)
             }
             "unpair" -> {
+                BleOperateManager.getInstance().setNeedConnect(false)
                 BleOperateManager.getInstance().unBindDevice()
                 DeviceManager.getInstance().deviceAddress = null
                 DeviceManager.getInstance().deviceName = null
+                mainHandler.removeCallbacksAndMessages(null)
                 mainHandler.post {
                     eventSink?.success(mapOf(
                         "type" to "deviceState",
@@ -974,7 +980,9 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                 }
             } else {
                 Log.i(TAG, "👓 [BLE DISCONNECTED] Device disconnected via connectStatue")
+                BleOperateManager.getInstance().setNeedConnect(false)
                 BleOperateManager.getInstance().isReady = false
+                mainHandler.removeCallbacksAndMessages(null)
                 mainHandler.post {
                     eventSink?.success(mapOf(
                         "type" to "deviceState",
@@ -991,14 +999,7 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                 false
             }
             if (!isConnected) {
-                Log.w(TAG, "👓 [BLE] onServiceDiscovered called but BleOperateManager.isConnected is false. Emitting disconnected state.")
-                BleOperateManager.getInstance().isReady = false
-                mainHandler.post {
-                    eventSink?.success(mapOf(
-                        "type" to "deviceState",
-                        "state" to 5 // disconnected
-                    ))
-                }
+                Log.w(TAG, "👓 [BLE] onServiceDiscovered called but BleOperateManager.isConnected is false. Ignoring stale discovery broadcast.")
                 return
             }
 
@@ -1016,7 +1017,9 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
             super.bleStatus(status, newState)
             if (newState == BluetoothProfile.STATE_DISCONNECTED || (status != BluetoothGatt.GATT_SUCCESS && !BleOperateManager.getInstance().isConnected)) {
                 Log.i(TAG, "👓 [BLE STATUS] Disconnect status: status=$status, newState=$newState")
+                BleOperateManager.getInstance().setNeedConnect(false)
                 BleOperateManager.getInstance().isReady = false
+                mainHandler.removeCallbacksAndMessages(null)
                 mainHandler.post {
                     eventSink?.success(mapOf(
                         "type" to "deviceState",
