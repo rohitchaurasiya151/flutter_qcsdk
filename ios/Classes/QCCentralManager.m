@@ -13,6 +13,16 @@ static NSInteger const QCBleDefaultTimeout = 15;
 static NSInteger const QCBleDefaultConnectTimeout = 6;
 @implementation QCBlePeripheral
 
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _RSSI = @(-100);
+        _mac = @"";
+        _isPaired = NO;
+        _hasSpecsSignature = NO;
+    }
+    return self;
+}
 
 @end
 
@@ -121,6 +131,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
         QCBlePeripheral *qcPer = [[QCBlePeripheral alloc] init];
         qcPer.peripheral = per;
         qcPer.mac = @"";//The paired device cannot read the mac from the system information, and can read the mac by sending instructions after the connection is successful
+        qcPer.RSSI = @(-100);
         qcPer.isPaired = YES;
         [tempAray addObject:qcPer];
     }
@@ -357,15 +368,17 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
         return;
     }
 
+    NSNumber *safeRssi = (RSSI != nil && [RSSI isKindOfClass:[NSNumber class]]) ? RSSI : @(-100);
+
     NSLog(@"👓 [iOS BLE] Devices found: '%@' (advName: '%@'), mac: '%@', id: %@, hasSpecsSignature: %d, RSSI: %@",
-          peripheral.name, advertisedName, mac, peripheral.identifier.UUIDString, hasSpecsSignature, RSSI);
+          peripheral.name, advertisedName, mac, peripheral.identifier.UUIDString, hasSpecsSignature, safeRssi);
     BOOL isExist = false;
     for (QCBlePeripheral *per in self.peripherals) {
         if([per.peripheral.identifier.UUIDString isEqual:peripheral.identifier.UUIDString]) {
             per.peripheral = peripheral;
             per.mac = mac;
             per.advertisementData = advertisementData;
-            per.RSSI = RSSI;
+            per.RSSI = safeRssi;
             per.hasSpecsSignature = hasSpecsSignature;
             isExist = true;
             break;
@@ -377,14 +390,16 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
         per.peripheral = peripheral;
         per.mac = mac;
         per.advertisementData = advertisementData;
-        per.RSSI = RSSI;
+        per.RSSI = safeRssi;
         per.hasSpecsSignature = hasSpecsSignature;
         [self.peripherals addObject:per];
     }
     
-    //Signal strength sorting
+    //Signal strength sorting (with nil-safe fallback to prevent [__NSCFNumber compare:] crashes)
     [self.peripherals sortUsingComparator:^NSComparisonResult(QCBlePeripheral *obj1, QCBlePeripheral *obj2) {
-        return [obj2.RSSI compare:obj1.RSSI]; // Higher RSSI ranks first;
+        NSNumber *r1 = (obj1.RSSI != nil && [obj1.RSSI isKindOfClass:[NSNumber class]]) ? obj1.RSSI : @(-100);
+        NSNumber *r2 = (obj2.RSSI != nil && [obj2.RSSI isKindOfClass:[NSNumber class]]) ? obj2.RSSI : @(-100);
+        return [r2 compare:r1]; // Higher RSSI ranks first;
     }];
     
     if(self.delegate && [self.delegate respondsToSelector:@selector(didScanPeripherals:)]) {
