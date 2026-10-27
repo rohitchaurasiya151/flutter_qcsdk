@@ -52,7 +52,13 @@ import com.oudmon.ble.base.scan.ScanWrapperCallback
 import com.oudmon.wifi.GlassesControl
 import com.oudmon.wifi.bean.GlassAlbumEntity
 
+import android.media.MediaCodec
+import android.media.MediaFormat
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.Arrays
 
 class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamHandler, ActivityAware {
@@ -841,7 +847,18 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
                 result.success(null)
             }
             "convertOpusToPcm" -> {
-                result.success(false)
+                val inputPath = call.argument<String>("inputPath")
+                val outputPath = call.argument<String>("outputPath")
+                if (inputPath == null || outputPath == null) {
+                    result.success(false)
+                    return
+                }
+                Thread {
+                    val success = decodeOpusToPcm(inputPath, outputPath)
+                    mainHandler.post {
+                        result.success(success)
+                    }
+                }.start()
             }
             "startToDownloadMediaResource" -> {
                 val storagePath = File(context?.getExternalFilesDir(""), "DCIM_1").absolutePath
@@ -1151,5 +1168,163 @@ class FlutterQcsdkPlugin: FlutterPlugin, MethodCallHandler, EventChannel.StreamH
             i += length + 1
         }
         return null
+    }
+
+    private fun decodeOpusToPcm(inputPath: String, outputPath: String): Boolean {
+        val inputFile = File(inputPath)
+        if (!inputFile.exists() || inputFile.length() == 0L) {
+            Log.e(TAG, "Input opus file does not exist or is empty: $inputPath")
+            return false
+        }
+
+        val outputFile = File(outputPath)
+        outputFile.parentFile?.mkdirs()
+        if (outputFile.exists()) {
+            outputFile.delete()
+        }
+
+        var codec: MediaCodec? = null
+        var fis: FileInputStream? = null
+        var fos: FileOutputStream? = null
+
+        try {
+            val sampleRate = 16000
+            val channels = 1
+            val format = MediaFormat.createAudioFormat("audio/opus", sampleRate, channels)
+
+            // CSD-0: 19-byte OpusHead structure (RFC 7845)
+            val csd0 = ByteBuffer.allocate(19).order(ByteOrder.LITTLE_ENDIAN).apply {
+                put("OpusHead".toByteArray(Charsets.US_ASCII)) // 8 bytes magic
+                put(1.toByte()) // Version = 1
+                put(channels.toByte()) // Channel count = 1
+                putShort(0.toShort()) // Pre-skip = 0
+                putInt(sampleRate) // Input sample rate = 16000
+                putShort(0.toShort()) // Output gain = 0
+                put(0.toByte()) // Channel mapping family = 0
+            }.array()
+
+            // CSD-1: Codec delay in nanoseconds (8 bytes)
+            val csd1 = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(0L).array()
+
+            // CSD-2: Seek preroll in nanoseconds (8 bytes, 80ms standard)
+            val csd2 = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(80000000L).array()
+
+            format.setByteBuffer("csd-0", ByteBuffer.wrap(csd0))
+            format.setByteBuffer("csd-1", ByteBuffer.wrap(csd1))
+            format.setByteBuffer("csd-2", ByteBuffer.wrap(csd2))
+
+            codec = MediaCodec.createDecoderByType("audio/opus")
+            codec.configure(format, null, null, 0)
+            codec.start()
+
+            fis = FileInputStream(inputFile)
+            fos = FileOutputStream(outputFile)
+
+            val isWav = outputPath.endsWith(".wav", ignoreCase = true)
+            if (isWav) {
+                // Reserve 44 bytes for standard WAV header
+                fos.write(ByteArray(44))
+            }
+
+            val bufferInfo = MediaCodec.BufferInfo()
+            val packetSize = 40
+            val packet = ByteArray(packetSize)
+            var sawInputEOS = false
+            var sawOutputEOS = false
+            var presentationTimeUs = 0L
+            val frameDurationUs = 20000L // 20ms per packet
+            val timeoutUs = 10000L
+            var totalPcmBytes = 0L
+
+            while (!sawOutputEOS) {
+                if (!sawInputEOS) {
+                    val inputBufferId = codec.dequeueInputBuffer(timeoutUs)
+                    if (inputBufferId >= 0) {
+                        val inputBuffer = codec.getInputBuffer(inputBufferId)
+                        if (inputBuffer != null) {
+                            inputBuffer.clear()
+                            val bytesRead = fis.read(packet)
+                            if (bytesRead <= 0) {
+                                sawInputEOS = true
+                                codec.queueInputBuffer(inputBufferId, 0, 0, presentationTimeUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            } else {
+                                inputBuffer.put(packet, 0, bytesRead)
+                                codec.queueInputBuffer(inputBufferId, 0, bytesRead, presentationTimeUs, 0)
+                                presentationTimeUs += frameDurationUs
+                            }
+                        }
+                    }
+                }
+
+                val outputBufferId = codec.dequeueOutputBuffer(bufferInfo, timeoutUs)
+                if (outputBufferId >= 0) {
+                    if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                        sawOutputEOS = true
+                    }
+                    if (bufferInfo.size > 0) {
+                        val outputBuffer = codec.getOutputBuffer(outputBufferId)
+                        if (outputBuffer != null) {
+                            outputBuffer.position(bufferInfo.offset)
+                            outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
+                            val chunk = ByteArray(bufferInfo.size)
+                            outputBuffer.get(chunk)
+                            fos.write(chunk)
+                            totalPcmBytes += bufferInfo.size
+                        }
+                    }
+                    codec.releaseOutputBuffer(outputBufferId, false)
+                } else if (outputBufferId == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    Log.d(TAG, "Opus decoder output format: ${codec.outputFormat}")
+                }
+            }
+
+            fos.flush()
+
+            if (isWav && totalPcmBytes > 0) {
+                writeWavHeader(outputFile, totalPcmBytes, sampleRate, channels)
+            }
+
+            val finalLength = outputFile.length()
+            Log.i(TAG, "✅ [Opus->PCM] Decoded ${inputFile.name} to $outputPath ($finalLength bytes)")
+            return finalLength > 0
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ [Opus->PCM] Failed decoding $inputPath: ${e.message}", e)
+            return false
+        } finally {
+            try { codec?.stop() } catch (_: Exception) {}
+            try { codec?.release() } catch (_: Exception) {}
+            try { fis?.close() } catch (_: Exception) {}
+            try { fos?.close() } catch (_: Exception) {}
+        }
+    }
+
+    private fun writeWavHeader(file: File, pcmDataLength: Long, sampleRate: Int, channels: Int) {
+        try {
+            val totalDataLen = pcmDataLength + 36
+            val byteRate = sampleRate * channels * 2
+            val header = ByteArray(44)
+            val buf = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
+
+            buf.put("RIFF".toByteArray(Charsets.US_ASCII))
+            buf.putInt(totalDataLen.toInt())
+            buf.put("WAVE".toByteArray(Charsets.US_ASCII))
+            buf.put("fmt ".toByteArray(Charsets.US_ASCII))
+            buf.putInt(16) // Subchunk1Size (16 for PCM)
+            buf.putShort(1.toShort()) // AudioFormat (1 for PCM)
+            buf.putShort(channels.toShort())
+            buf.putInt(sampleRate)
+            buf.putInt(byteRate)
+            buf.putShort((channels * 2).toShort()) // BlockAlign
+            buf.putShort(16.toShort()) // BitsPerSample
+            buf.put("data".toByteArray(Charsets.US_ASCII))
+            buf.putInt(pcmDataLength.toInt())
+
+            java.io.RandomAccessFile(file, "rw").use { raf ->
+                raf.seek(0)
+                raf.write(header)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed writing WAV header: ${e.message}")
+        }
     }
 }
