@@ -61,19 +61,37 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     return instance;
 }
 
+- (CBCentralManager *)centerManager {
+    if (!_centerManager) {
+        NSDictionary *options = [NSDictionary dictionaryWithObjectsAndKeys:
+                                 // 蓝牙power没打开时alert提示框
+                                 [NSNumber numberWithBool:YES],CBCentralManagerOptionShowPowerAlertKey,
+                                 [NSNumber numberWithBool:YES],CBConnectPeripheralOptionNotifyOnConnectionKey,
+                                 // 重设centralManager恢复的IdentifierKey
+                                 @"QCWXBluetoothRestore",CBCentralManagerOptionRestoreIdentifierKey,
+                                 nil];
+        _centerManager = [[CBCentralManager alloc] initWithDelegate:self queue:dispatch_get_main_queue() options:options];
+    }
+    return _centerManager;
+}
+
+- (QCBluetoothState)bleState {
+    if (_centerManager) {
+        return _bleState;
+    }
+    if (@available(iOS 13.1, *)) {
+        CBManagerAuthorization auth = CBManager.authorization;
+        if (auth == CBManagerAuthorizationDenied || auth == CBManagerAuthorizationRestricted) {
+            return QCBluetoothStateUnauthorized;
+        }
+    }
+    return QCBluetoothStateUnkown;
+}
+
 - (instancetype)init
 {
     self = [super init];
     if (self) {
-        NSDictionary *options = [NSDictionary dictionaryWithObjectsAndKeys:
-                                 //蓝牙power没打开时alert提示框
-                                 [NSNumber numberWithBool:YES],CBCentralManagerOptionShowPowerAlertKey,
-                                 [NSNumber numberWithBool:YES],CBConnectPeripheralOptionNotifyOnConnectionKey,
-                                 //重设centralManager恢复的IdentifierKey
-                                 @"QCWXBluetoothRestore",CBCentralManagerOptionRestoreIdentifierKey,
-                                 nil];
-        
-        _centerManager = [[CBCentralManager alloc] initWithDelegate:self queue:dispatch_get_main_queue() options:options];
         _peripherals = [[NSMutableArray alloc] init];
         _scanTimeout = QCBleDefaultTimeout;
         _connectTimeout = QCBleDefaultTimeout;
@@ -145,11 +163,11 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     }
     
     NSDictionary *option = @{CBCentralManagerScanOptionAllowDuplicatesKey : [NSNumber numberWithBool:NO]};
-    if (_centerManager.state == CBManagerStatePoweredOn) {
+    if (self.centerManager.state == CBManagerStatePoweredOn) {
         NSLog(@"🚀 [iOS BLE] scanForPeripheralsWithServices started.");
-        [_centerManager scanForPeripheralsWithServices:nil options:option];
+        [self.centerManager scanForPeripheralsWithServices:nil options:option];
     } else {
-        NSLog(@"⚠️ [iOS BLE] CBCentralManager state is %ld (not PoweredOn yet). Will scan on PoweredOn.", (long)_centerManager.state);
+        NSLog(@"⚠️ [iOS BLE] CBCentralManager state is %ld (not PoweredOn yet). Will scan on PoweredOn.", (long)self.centerManager.state);
     }
     
     [self stopTimer];
@@ -210,12 +228,12 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
         }
     }
     
-    [_centerManager connectPeripheral:lastPer options:options];
+    [self.centerManager connectPeripheral:lastPer options:options];
 }
 
 - (void)disconnect {
     [self stopTimer];
-    if (self.connectedPeripheral) {
+    if (self.connectedPeripheral && _centerManager) {
         @try {
             [_centerManager cancelPeripheralConnection:self.connectedPeripheral];
         } @catch (NSException *e) {
@@ -229,7 +247,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 - (void)remove {
     
     [self stopTimer];
-    if (self.connectedPeripheral) {
+    if (self.connectedPeripheral && _centerManager) {
         @try {
             [_centerManager cancelPeripheralConnection:self.connectedPeripheral];
         } @catch (NSException *e) {
@@ -470,6 +488,9 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 #pragma mark - Helpers
 - (NSArray *)retrieveConnectPeripheral:(NSArray<CBUUID *> *)uuidArray
 {
+    if (!_centerManager) {
+        return @[];
+    }
     NSArray *connectedDevice = [_centerManager retrieveConnectedPeripheralsWithServices:uuidArray];
     NSMutableArray *connectedPeripheral = [NSMutableArray arrayWithCapacity:connectedDevice.count];
     [connectedDevice enumerateObjectsUsingBlock:^(id  _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
@@ -494,7 +515,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
         NSLog(@"NSUUID(%@)合法，但无法创建UUID，原因不明", uuid);
         return nil;
     }
-    periperals = [_centerManager retrievePeripheralsWithIdentifiers:@[UUID]];
+    periperals = [self.centerManager retrievePeripheralsWithIdentifiers:@[UUID]];
     if (periperals.count > 0) {
         return [periperals objectAtIndex:0];
     } else {
