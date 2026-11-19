@@ -137,31 +137,8 @@
         NSLog(@"⚠️ [iOS QCSDK] Setting wifi credentials on QCSDKManager notice: %@", ex);
       }
       
-      if (@available(iOS 11.0, *)) {
-        if (ssid && ssid.length > 0) {
-          NSLog(@"👓 [iOS QCSDK] Applying NEHotspotConfiguration for SSID: '%@'...", ssid);
-          NEHotspotConfiguration *config = nil;
-          if (pwd && pwd.length > 0) {
-            config = [[NEHotspotConfiguration alloc] initWithSSID:ssid passphrase:pwd isWEP:NO];
-          } else {
-            config = [[NEHotspotConfiguration alloc] initWithSSID:ssid];
-          }
-          config.joinOnce = YES;
-          [[NEHotspotConfigurationManager sharedManager] applyConfiguration:config completionHandler:^(NSError * _Nullable error) {
-            if (error) {
-              if (error.code == 8) { // NEHotspotConfigurationErrorAlreadyAssociated
-                NSLog(@"✅ [iOS NEHotspot] Already connected to Wi-Fi SSID: '%@'", ssid);
-              } else {
-                NSLog(@"⚠️ [iOS NEHotspot] applyConfiguration note: code=%ld, reason=%@", (long)error.code, error.localizedDescription);
-              }
-            } else {
-              NSLog(@"✅ [iOS NEHotspot] Successfully joined Wi-Fi SSID: '%@'", ssid);
-            }
-            result(@{@"ssid": ssid ?: @"", @"password": pwd ?: @""});
-          }];
-          return;
-        }
-      }
+      // Return credentials cleanly without triggering duplicate NEHotspot prompt.
+      // QCSDKManager's startToDownloadMediaResource will perform the actual Wi-Fi connection.
       result(@{@"ssid": ssid ?: @"", @"password": pwd ?: @""});
     } fail:^(NSInteger errCode) {
       NSLog(@"⚠️ [iOS QCSDK] openWifiWithMode FAILED with errCode: %ld", (long)errCode);
