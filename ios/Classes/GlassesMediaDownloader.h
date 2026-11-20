@@ -4,14 +4,16 @@
 NS_ASSUME_NONNULL_BEGIN
 
 typedef void (^GlassesMediaDownloaderStatusHandler)(NSString *status, UIImage * _Nullable previewImage);
-typedef void (^GlassesMediaDownloaderFileDownloadedHandler)(NSString *filePath, NSUInteger index, NSUInteger totalCount);
-typedef void (^GlassesMediaDownloaderCompletionHandler)(NSArray<NSString *> * _Nullable downloadedFilePaths, NSError * _Nullable error);
+typedef void (^GlassesMediaDownloaderCompletionHandler)(NSError * _Nullable error);
+typedef void (^GlassesMediaDownloaderProgressHandler)(NSInteger completedFiles, NSInteger totalFiles, CGFloat progress);
+typedef void (^GlassesMediaDownloaderFileHandler)(NSString *filePath, NSInteger index, NSInteger count);
 
 @interface GlassesMediaDownloader : NSObject
 
-- (instancetype)initWithStatusHandler:(nullable GlassesMediaDownloaderStatusHandler)statusHandler
-               fileDownloadedHandler:(nullable GlassesMediaDownloaderFileDownloadedHandler)fileDownloadedHandler NS_DESIGNATED_INITIALIZER;
+@property (nonatomic, copy, nullable) GlassesMediaDownloaderProgressHandler progressHandler;
+@property (nonatomic, copy, nullable) GlassesMediaDownloaderFileHandler fileDownloadedHandler;
 
+- (instancetype)initWithStatusHandler:(GlassesMediaDownloaderStatusHandler)statusHandler NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
 - (void)startDownloadWithCompletion:(GlassesMediaDownloaderCompletionHandler)completion;
