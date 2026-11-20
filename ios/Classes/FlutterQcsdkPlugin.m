@@ -422,31 +422,19 @@
 
     __weak typeof(self) weakSelf = self;
     self.glassesDownloader = [[GlassesMediaDownloader alloc] initWithStatusHandler:^(NSString *status, UIImage *previewImage) {
-      NSLog(@"👓 [GlassesMediaDownloader Status]: %@", status);
-    }];
-
-    self.glassesDownloader.progressHandler = ^(NSInteger completedFiles, NSInteger totalFiles, CGFloat progress) {
-      NSLog(@"👓 [GlassesMediaDownloader] Progress: %ld / %ld (%.1f%%)", (long)completedFiles, (long)totalFiles, progress * 100.0);
-      [weakSelf sendEvent:@{
-        @"type": @"downloadProgress",
-        @"receivedSize": @(completedFiles),
-        @"expectedSize": @(totalFiles),
-        @"progress": @(progress)
-      }];
-    };
-
-    self.glassesDownloader.fileDownloadedHandler = ^(NSString *filePath, NSInteger index, NSInteger count) {
-      NSLog(@"✅ [GlassesMediaDownloader] File saved [%ld/%ld]: %@", (long)index + 1, (long)count, filePath);
+      NSLog(@"👓 [GlassesMediaDownloader]: %@", status);
+    } fileDownloadedHandler:^(NSString *filePath, NSUInteger index, NSUInteger totalCount) {
+      NSLog(@"✅ [GlassesMediaDownloader]: Downloaded [%lu/%lu] -> %@", (unsigned long)(index + 1), (unsigned long)totalCount, filePath);
       [weakSelf sendEvent:@{
         @"type": @"downloadComplete",
         @"filePath": filePath ?: @"",
         @"error": @"",
         @"index": @(index),
-        @"count": @(count)
+        @"count": @(totalCount)
       }];
-    };
+    }];
 
-    [self.glassesDownloader startDownloadWithCompletion:^(NSError *error) {
+    [self.glassesDownloader startDownloadWithCompletion:^(NSArray<NSString *> * _Nullable downloadedFilePaths, NSError * _Nullable error) {
       if (error) {
         NSLog(@"💥 [GlassesMediaDownloader ERROR]: %@", error.localizedDescription);
         [weakSelf sendEvent:@{
@@ -457,13 +445,13 @@
           @"count": @(0)
         }];
       } else {
-        NSLog(@"✅ [GlassesMediaDownloader] Download completed successfully for all files!");
+        NSLog(@"🎉 [GlassesMediaDownloader SUCCESS]: All %lu media file(s) downloaded to disk", (unsigned long)downloadedFilePaths.count);
         [weakSelf sendEvent:@{
           @"type": @"downloadComplete",
           @"filePath": @"",
           @"error": @"",
-          @"index": @(0),
-          @"count": @(0)
+          @"index": @(downloadedFilePaths.count),
+          @"count": @(downloadedFilePaths.count)
         }];
       }
       weakSelf.glassesDownloader = nil;
