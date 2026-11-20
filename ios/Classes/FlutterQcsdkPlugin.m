@@ -1,6 +1,7 @@
 #import "FlutterQcsdkPlugin.h"
 #import <QCSDK/QCSDK.h>
 #import "QCCentralManager.h"
+#import "GlassesMediaDownloader.h"
 #import <NetworkExtension/NetworkExtension.h>
 
 
@@ -8,6 +9,7 @@
 @property (nonatomic, strong) FlutterEventSink eventSink;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, CBPeripheral *> *scannedPeripherals;
 @property (nonatomic, copy, nullable) NSString *lastWifiSSID;
+@property (nonatomic, strong, nullable) GlassesMediaDownloader *glassesDownloader;
 @end
 
 @implementation FlutterQcsdkPlugin
@@ -415,59 +417,58 @@
   }
   else if ([@"startToDownloadMediaResource" isEqualToString:call.method]) {
     NSLog(@"👓 [iOS QCSDK] ----------------------------------------");
-    NSLog(@"👓 [iOS QCSDK] startToDownloadMediaResource CALLED");
-    NSLog(@"👓 [iOS QCSDK] Stored lastWifiSSID: '%@'", self.lastWifiSSID ?: @"(nil)");
-    
-    // Check current Wi-Fi configuration status from iOS NetworkExtension
-    if (@available(iOS 11.0, *)) {
-      [[NEHotspotConfigurationManager sharedManager] getConfiguredSSIDsWithCompletionHandler:^(NSArray<NSString *> * _Nonnull ssids) {
-        NSLog(@"👓 [iOS QCSDK] Currently NEHotspot configured SSIDs: %@", ssids);
-      }];
-    }
+    NSLog(@"👓 [iOS QCSDK] startToDownloadMediaResource CALLED (using GlassesMediaDownloader)");
     NSLog(@"👓 [iOS QCSDK] ----------------------------------------");
 
     __weak typeof(self) weakSelf = self;
-    [[QCSDKManager shareInstance] startToDownloadMediaResourceWithProgress:^(NSInteger receivedSize, NSInteger expectedSize, CGFloat progress) {
-      NSLog(@"👓 [iOS QCSDK] Download Progress: %ld / %ld bytes (%.1f%%)", (long)receivedSize, (long)expectedSize, progress * 100.0);
+    self.glassesDownloader = [[GlassesMediaDownloader alloc] initWithStatusHandler:^(NSString *status, UIImage *previewImage) {
+      NSLog(@"👓 [GlassesMediaDownloader Status]: %@", status);
+    }];
+
+    self.glassesDownloader.progressHandler = ^(NSInteger completedFiles, NSInteger totalFiles, CGFloat progress) {
+      NSLog(@"👓 [GlassesMediaDownloader] Progress: %ld / %ld (%.1f%%)", (long)completedFiles, (long)totalFiles, progress * 100.0);
       [weakSelf sendEvent:@{
         @"type": @"downloadProgress",
-        @"receivedSize": @(receivedSize),
-        @"expectedSize": @(expectedSize),
+        @"receivedSize": @(completedFiles),
+        @"expectedSize": @(totalFiles),
         @"progress": @(progress)
       }];
-    } completion:^(NSString * _Nullable filePath, NSError * _Nullable error, NSInteger index, NSInteger count) {
-      if (error) {
-        NSString *reason = @"";
-        switch (error.code) {
-          case 2000: reason = @"QCErrorCodeInvalidWifiOrPassword (WiFi or password is empty)"; break;
-          case 2001: reason = @"QCErrorCodeFailedToGetGlassesIP (iPhone not connected to glasses Wi-Fi hotspot)"; break;
-          case 2002: reason = @"QCErrorCodeFailedToGetAppIP (Failed to obtain iPhone IP address)"; break;
-          case 2003: reason = @"QCErrorCodeLocalNetworkNotAuthorized (iOS Local Network permission denied/missing)"; break;
-          case 2004: reason = @"QCErrorCodeDownloadConfigFileFailed (HTTP request to glasses config failed)"; break;
-          case 2005: reason = @"QCErrorCodeDownloadFileFailed (HTTP download of media file failed)"; break;
-          case 2006: reason = @"QCErrorCodeFileListEmpty (No media files on device)"; break;
-          default: reason = error.localizedDescription ?: @"Unknown error"; break;
-        }
-        NSLog(@"💥 [iOS QCSDK ERROR] ========================================");
-        NSLog(@"💥 [iOS QCSDK ERROR] Download Failed!");
-        NSLog(@"💥 [iOS QCSDK ERROR] Error Code: %ld", (long)error.code);
-        NSLog(@"💥 [iOS QCSDK ERROR] Reason: %@", reason);
-        NSLog(@"💥 [iOS QCSDK ERROR] Domain: %@", error.domain);
-        NSLog(@"💥 [iOS QCSDK ERROR] UserInfo: %@", error.userInfo);
-        NSLog(@"💥 [iOS QCSDK ERROR] UnderLyingError: %@", error.userInfo[NSUnderlyingErrorKey]);
-        NSLog(@"💥 [iOS QCSDK ERROR] ========================================");
-      } else {
-        NSLog(@"✅ [iOS QCSDK] Download File Success [%ld/%ld]: path='%@'",
-              (long)index + 1, (long)count, filePath ?: @"(empty completion)");
-      }
+    };
+
+    self.glassesDownloader.fileDownloadedHandler = ^(NSString *filePath, NSInteger index, NSInteger count) {
+      NSLog(@"✅ [GlassesMediaDownloader] File saved [%ld/%ld]: %@", (long)index + 1, (long)count, filePath);
       [weakSelf sendEvent:@{
         @"type": @"downloadComplete",
         @"filePath": filePath ?: @"",
-        @"error": error ? [NSString stringWithFormat:@"[%ld] %@", (long)error.code, error.localizedDescription ?: @""] : @"",
+        @"error": @"",
         @"index": @(index),
         @"count": @(count)
       }];
+    };
+
+    [self.glassesDownloader startDownloadWithCompletion:^(NSError *error) {
+      if (error) {
+        NSLog(@"💥 [GlassesMediaDownloader ERROR]: %@", error.localizedDescription);
+        [weakSelf sendEvent:@{
+          @"type": @"downloadComplete",
+          @"filePath": @"",
+          @"error": error.localizedDescription ?: @"Download failed",
+          @"index": @(0),
+          @"count": @(0)
+        }];
+      } else {
+        NSLog(@"✅ [GlassesMediaDownloader] Download completed successfully for all files!");
+        [weakSelf sendEvent:@{
+          @"type": @"downloadComplete",
+          @"filePath": @"",
+          @"error": @"",
+          @"index": @(0),
+          @"count": @(0)
+        }];
+      }
+      weakSelf.glassesDownloader = nil;
     }];
+
     result(nil);
   }
   else if ([@"requestEnableBluetooth" isEqualToString:call.method]) {
