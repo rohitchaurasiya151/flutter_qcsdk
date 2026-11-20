@@ -7,6 +7,7 @@
 @interface FlutterQcsdkPlugin () <QCCentralManagerDelegate, QCSDKManagerDelegate, FlutterStreamHandler>
 @property (nonatomic, strong) FlutterEventSink eventSink;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, CBPeripheral *> *scannedPeripherals;
+@property (nonatomic, copy, nullable) NSString *lastWifiSSID;
 @end
 
 @implementation FlutterQcsdkPlugin
@@ -125,8 +126,10 @@
   else if ([@"openWifiWithMode" isEqualToString:call.method]) {
     NSInteger modeVal = [call.arguments[@"mode"] integerValue];
     NSLog(@"👓 [iOS QCSDK] openWifiWithMode called (mode: %ld)", (long)modeVal);
+    __weak typeof(self) weakSelf = self;
     [QCSDKCmdCreator openWifiWithMode:(QCOperatorDeviceMode)modeVal success:^(NSString *ssid, NSString *pwd) {
       NSLog(@"👓 [iOS QCSDK] openWifiWithMode SUCCESS -> SSID: '%@', PWD: '%@'", ssid, pwd);
+      weakSelf.lastWifiSSID = ssid;
       
       @try {
         if ([QCSDKManager shareInstance]) {
@@ -411,7 +414,18 @@
     }];
   }
   else if ([@"startToDownloadMediaResource" isEqualToString:call.method]) {
-    NSLog(@"👓 [iOS QCSDK] startToDownloadMediaResource initiated");
+    NSLog(@"👓 [iOS QCSDK] ----------------------------------------");
+    NSLog(@"👓 [iOS QCSDK] startToDownloadMediaResource CALLED");
+    NSLog(@"👓 [iOS QCSDK] Stored lastWifiSSID: '%@'", self.lastWifiSSID ?: @"(nil)");
+    
+    // Check current Wi-Fi configuration status from iOS NetworkExtension
+    if (@available(iOS 11.0, *)) {
+      [[NEHotspotConfigurationManager sharedManager] getConfiguredSSIDsWithCompletionHandler:^(NSArray<NSString *> * _Nonnull ssids) {
+        NSLog(@"👓 [iOS QCSDK] Currently NEHotspot configured SSIDs: %@", ssids);
+      }];
+    }
+    NSLog(@"👓 [iOS QCSDK] ----------------------------------------");
+
     __weak typeof(self) weakSelf = self;
     [[QCSDKManager shareInstance] startToDownloadMediaResourceWithProgress:^(NSInteger receivedSize, NSInteger expectedSize, CGFloat progress) {
       NSLog(@"👓 [iOS QCSDK] Download Progress: %ld / %ld bytes (%.1f%%)", (long)receivedSize, (long)expectedSize, progress * 100.0);
@@ -434,8 +448,14 @@
           case 2006: reason = @"QCErrorCodeFileListEmpty (No media files on device)"; break;
           default: reason = error.localizedDescription ?: @"Unknown error"; break;
         }
-        NSLog(@"⚠️ [iOS QCSDK] Download Error: code=%ld, reason='%@', domain=%@, details=%@",
-              (long)error.code, reason, error.domain, error.userInfo);
+        NSLog(@"💥 [iOS QCSDK ERROR] ========================================");
+        NSLog(@"💥 [iOS QCSDK ERROR] Download Failed!");
+        NSLog(@"💥 [iOS QCSDK ERROR] Error Code: %ld", (long)error.code);
+        NSLog(@"💥 [iOS QCSDK ERROR] Reason: %@", reason);
+        NSLog(@"💥 [iOS QCSDK ERROR] Domain: %@", error.domain);
+        NSLog(@"💥 [iOS QCSDK ERROR] UserInfo: %@", error.userInfo);
+        NSLog(@"💥 [iOS QCSDK ERROR] UnderLyingError: %@", error.userInfo[NSUnderlyingErrorKey]);
+        NSLog(@"💥 [iOS QCSDK ERROR] ========================================");
       } else {
         NSLog(@"✅ [iOS QCSDK] Download File Success [%ld/%ld]: path='%@'",
               (long)index + 1, (long)count, filePath ?: @"(empty completion)");
