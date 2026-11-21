@@ -1861,15 +1861,13 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
   [self downloadFiles:fileURLs
           toDirectory:mediaDirectoryURL
               atIndex:0
-                retry:0
-        latestPreview:nil];
+                retry:0];
 }
 
 - (void)downloadFiles:(NSArray<NSURL *> *)fileURLs
           toDirectory:(NSURL *)directoryURL
               atIndex:(NSUInteger)index
-                retry:(NSInteger)retry
-        latestPreview:(UIImage *_Nullable)latestPreview {
+                retry:(NSInteger)retry {
   if (self.didFinish) {
     return;
   }
@@ -1877,8 +1875,7 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
   if (index >= fileURLs.count) {
     NSLog(@"🎉 [GlassesMediaDownloader] Successfully downloaded all %lu files!",
           (unsigned long)fileURLs.count);
-    [self updateStatus:@"All media downloaded. Checking post-download manifest..."
-               preview:latestPreview];
+    [self updateStatus:@"All media downloaded. Checking post-download manifest..."];
 
     // Re-fetch media.config to inspect what smart glasses report after download
     NSURL *checkURL = self.lastManifestURL ?: [NSURL URLWithString:@"http://192.168.31.1/files/media.config"];
@@ -1939,8 +1936,7 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
   [self updateStatus:[NSString stringWithFormat:@"Downloading %lu/%lu: %@%@",
                                                 (unsigned long)(index + 1),
                                                 (unsigned long)fileURLs.count,
-                                                filename, attemptStr]
-             preview:latestPreview];
+                                                filename, attemptStr]];
 
   NSMutableURLRequest *request =
       [NSMutableURLRequest requestWithURL:fileURL
@@ -1974,8 +1970,7 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
                     updateStatus:[NSString
                                      stringWithFormat:@"Retrying %@ (%ld/3)...",
                                                       filename,
-                                                      (long)(retry + 1)]
-                         preview:latestPreview];
+                                                      (long)(retry + 1)]];
                 dispatch_after(
                     dispatch_time(DISPATCH_TIME_NOW,
                                   (int64_t)(1.0 * NSEC_PER_SEC)),
@@ -1983,8 +1978,7 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
                       [strongSelf downloadFiles:fileURLs
                                     toDirectory:directoryURL
                                         atIndex:index
-                                          retry:retry + 1
-                                  latestPreview:latestPreview];
+                                          retry:retry + 1];
                     });
                 return;
               }
@@ -2025,13 +2019,11 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
             NSLog(@"✅ [GlassesMediaDownloader] Saved [%lu/%lu] (%lu bytes) -> %@",
                   (unsigned long)(index + 1), (unsigned long)fileURLs.count,
                   (unsigned long)data.length, destinationURL.path);
-            UIImage *previewImage = [strongSelf previewImageForData:data];
-            UIImage *nextPreview = previewImage ?: latestPreview;
             NSString *status =
                 [NSString stringWithFormat:@"Saved %lu/%lu: %@",
                                            (unsigned long)(index + 1),
                                            (unsigned long)fileURLs.count, filename];
-            [strongSelf updateStatus:status preview:nextPreview];
+            [strongSelf updateStatus:status];
 
             // 350ms pacing delay between files to allow smart glasses hardware to flush internal buffers and close file descriptor
             dispatch_after(
@@ -2041,8 +2033,7 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
                   [strongSelf downloadFiles:fileURLs
                                 toDirectory:directoryURL
                                     atIndex:index + 1
-                                      retry:0
-                              latestPreview:nextPreview];
+                                      retry:0];
                 });
           }];
   [task resume];
@@ -2050,18 +2041,17 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
 
 #pragma mark - Helpers
 
-- (UIImage *_Nullable)previewImageForData:(NSData *)data {
-  UIImage *image = [UIImage imageWithData:data scale:UIScreen.mainScreen.scale];
-  return image;
-}
-
-- (void)updateStatus:(NSString *)status preview:(UIImage *_Nullable)preview {
+- (void)updateStatus:(NSString *)status {
   if (!self.statusHandler) {
     return;
   }
   dispatch_async(dispatch_get_main_queue(), ^{
-    self.statusHandler(status, preview);
+    self.statusHandler(status);
   });
+}
+
+- (void)updateStatus:(NSString *)status preview:(nullable id)preview {
+  [self updateStatus:status];
 }
 
 - (void)stopTransferModeWithAttempt:(NSInteger)attempt

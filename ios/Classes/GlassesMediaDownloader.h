@@ -3,7 +3,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-typedef void (^GlassesMediaDownloaderStatusHandler)(NSString *status, UIImage * _Nullable previewImage);
+typedef void (^GlassesMediaDownloaderStatusHandler)(NSString *status);
 typedef void (^GlassesMediaDownloaderCompletionHandler)(NSError * _Nullable error);
 typedef void (^GlassesMediaDownloaderProgressHandler)(NSInteger completedFiles, NSInteger totalFiles, CGFloat progress);
 typedef void (^GlassesMediaDownloaderFileHandler)(NSString *filePath, NSInteger index, NSInteger count);

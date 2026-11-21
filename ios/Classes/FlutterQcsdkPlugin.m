@@ -517,7 +517,7 @@
 
     __weak typeof(self) weakSelf = self;
     self.glassesDownloader = [[GlassesMediaDownloader alloc]
-        initWithStatusHandler:^(NSString *status, UIImage *previewImage) {
+        initWithStatusHandler:^(NSString *status) {
           NSLog(@"👓 [GlassesMediaDownloader]: %@", status);
         }];
 
