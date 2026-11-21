@@ -68,9 +68,16 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
         [NSURLSessionConfiguration defaultSessionConfiguration];
     config.allowsCellularAccess =
         NO; // Force Wi-Fi en0 only (no cellular interference)
-    config.timeoutIntervalForRequest = 15.0;
-    config.timeoutIntervalForResource = 60.0;
+    config.timeoutIntervalForRequest = 20.0;
+    config.timeoutIntervalForResource = 120.0;
     config.waitsForConnectivity = YES;
+    config.HTTPMaximumConnectionsPerHost = 1;
+    config.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+    config.HTTPAdditionalHeaders = @{@"Connection" : @"close"};
+    if (@available(iOS 13.0, *)) {
+      config.allowsExpensiveNetworkAccess = YES;
+      config.allowsConstrainedNetworkAccess = YES;
+    }
     _session = [NSURLSession sessionWithConfiguration:config];
     _isRequestingWifiCredentials = NO;
   }
@@ -1852,14 +1859,22 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
   [self downloadFiles:fileURLs
           toDirectory:mediaDirectoryURL
               atIndex:0
+                retry:0
         latestPreview:nil];
 }
 
 - (void)downloadFiles:(NSArray<NSURL *> *)fileURLs
           toDirectory:(NSURL *)directoryURL
               atIndex:(NSUInteger)index
+                retry:(NSInteger)retry
         latestPreview:(UIImage *_Nullable)latestPreview {
+  if (self.didFinish) {
+    return;
+  }
+
   if (index >= fileURLs.count) {
+    NSLog(@"🎉 [GlassesMediaDownloader] Successfully downloaded all %lu files!",
+          (unsigned long)fileURLs.count);
     [self updateStatus:@"All media downloaded." preview:latestPreview];
     [self finishWithError:nil];
     return;
@@ -1872,86 +1887,122 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
           : [NSString stringWithFormat:@"media_%lu", (unsigned long)index];
   NSURL *destinationURL = [directoryURL URLByAppendingPathComponent:filename];
 
-  [self updateStatus:[NSString stringWithFormat:@"Downloading %lu/%lu: %@",
+  NSString *attemptStr = retry > 0
+                             ? [NSString stringWithFormat:@" (Attempt %ld/3)",
+                                                          (long)(retry + 1)]
+                             : @"";
+  NSLog(@"📥 [GlassesMediaDownloader] Downloading [%lu/%lu]%@: %@",
+        (unsigned long)(index + 1), (unsigned long)fileURLs.count, attemptStr,
+        filename);
+  [self updateStatus:[NSString stringWithFormat:@"Downloading %lu/%lu: %@%@",
                                                 (unsigned long)(index + 1),
                                                 (unsigned long)fileURLs.count,
-                                                filename]
+                                                filename, attemptStr]
              preview:latestPreview];
+
+  NSMutableURLRequest *request =
+      [NSMutableURLRequest requestWithURL:fileURL
+                              cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
+                          timeoutInterval:20.0];
+  [request setValue:@"close" forHTTPHeaderField:@"Connection"];
 
   __weak typeof(self) weakSelf = self;
   NSURLSessionDataTask *task = [self.session
-        dataTaskWithURL:fileURL
-      completionHandler:^(NSData *_Nullable data,
-                          NSURLResponse *_Nullable response,
-                          NSError *_Nullable error) {
-        __strong typeof(weakSelf) strongSelf = weakSelf;
-        if (!strongSelf) {
-          return;
-        }
-        if (error) {
-          NSString *description = [NSString
-              stringWithFormat:@"Failed to download %@: %@", filename,
-                               error.localizedDescription ?: @"unknown error"];
-          NSError *downloadError = [NSError
-              errorWithDomain:GlassesMediaDownloaderErrorDomain
-                         code:GlassesMediaDownloaderErrorCodeDownload
-                     userInfo:@{NSLocalizedDescriptionKey : description}];
-          [strongSelf finishWithError:downloadError];
-          return;
-        }
+        dataTaskWithRequest:request
+          completionHandler:^(NSData *_Nullable data,
+                              NSURLResponse *_Nullable response,
+                              NSError *_Nullable error) {
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf || strongSelf.didFinish) {
+              return;
+            }
 
-        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
-        if (httpResponse.statusCode < 200 || httpResponse.statusCode >= 300) {
-          NSString *description = [NSString
-              stringWithFormat:@"Failed to download %@: HTTP %ld", filename,
-                               (long)httpResponse.statusCode];
-          NSError *downloadError = [NSError
-              errorWithDomain:GlassesMediaDownloaderErrorDomain
-                         code:GlassesMediaDownloaderErrorCodeDownload
-                     userInfo:@{NSLocalizedDescriptionKey : description}];
-          [strongSelf finishWithError:downloadError];
-          return;
-        }
+            NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+            BOOL hasNetworkError = (error != nil || httpResponse.statusCode < 200 ||
+                                    httpResponse.statusCode >= 300 ||
+                                    data.length == 0);
 
-        if (data.length == 0) {
-          NSString *description =
-              [NSString stringWithFormat:@"%@ is empty.", filename];
-          NSError *downloadError = [NSError
-              errorWithDomain:GlassesMediaDownloaderErrorDomain
-                         code:GlassesMediaDownloaderErrorCodeDownload
-                     userInfo:@{NSLocalizedDescriptionKey : description}];
-          [strongSelf finishWithError:downloadError];
-          return;
-        }
+            if (hasNetworkError) {
+              if (retry < 3) {
+                NSLog(@"⚠️ [GlassesMediaDownloader] Download hiccup for %@ (error: "
+                      @"%@, HTTP %ld). Retrying %ld/3 in 1.0s...",
+                      filename, error.localizedDescription ?: @"none",
+                      (long)httpResponse.statusCode, (long)(retry + 1));
+                [strongSelf
+                    updateStatus:[NSString
+                                     stringWithFormat:@"Retrying %@ (%ld/3)...",
+                                                      filename,
+                                                      (long)(retry + 1)]
+                         preview:latestPreview];
+                dispatch_after(
+                    dispatch_time(DISPATCH_TIME_NOW,
+                                  (int64_t)(1.0 * NSEC_PER_SEC)),
+                    dispatch_get_main_queue(), ^{
+                      [strongSelf downloadFiles:fileURLs
+                                    toDirectory:directoryURL
+                                        atIndex:index
+                                          retry:retry + 1
+                                  latestPreview:latestPreview];
+                    });
+                return;
+              }
 
-        [[NSFileManager defaultManager] removeItemAtURL:destinationURL
-                                                  error:nil];
-        NSError *writeError = nil;
-        if (![data writeToURL:destinationURL
-                      options:NSDataWritingAtomic
-                        error:&writeError]) {
-          NSString *description =
-              [NSString stringWithFormat:@"Failed to save %@: %@", filename,
-                                         writeError.localizedDescription
-                                             ?: @"unknown error"];
-          NSError *filesystemError = [NSError
-              errorWithDomain:GlassesMediaDownloaderErrorDomain
-                         code:GlassesMediaDownloaderErrorCodeFilesystem
-                     userInfo:@{NSLocalizedDescriptionKey : description}];
-          [strongSelf finishWithError:filesystemError];
-          return;
-        }
+              NSString *description = [NSString
+                  stringWithFormat:@"Failed to download %@ after 3 attempts: %@ "
+                                   @"(HTTP %ld)",
+                                   filename,
+                                   error.localizedDescription ?: @"unknown error",
+                                   (long)httpResponse.statusCode];
+              NSLog(@"💥 [GlassesMediaDownloader] %@", description);
+              NSError *downloadError = [NSError
+                  errorWithDomain:GlassesMediaDownloaderErrorDomain
+                             code:GlassesMediaDownloaderErrorCodeDownload
+                         userInfo:@{NSLocalizedDescriptionKey : description}];
+              [strongSelf finishWithError:downloadError];
+              return;
+            }
 
-        UIImage *previewImage = [strongSelf previewImageForData:data];
-        UIImage *nextPreview = previewImage ?: latestPreview;
-        NSString *status = [NSString stringWithFormat:@"Saved %@", filename];
-        [strongSelf updateStatus:status preview:nextPreview];
+            [[NSFileManager defaultManager] removeItemAtURL:destinationURL
+                                                      error:nil];
+            NSError *writeError = nil;
+            if (![data writeToURL:destinationURL
+                          options:NSDataWritingAtomic
+                            error:&writeError]) {
+              NSString *description =
+                  [NSString stringWithFormat:@"Failed to save %@: %@", filename,
+                                             writeError.localizedDescription
+                                                 ?: @"unknown error"];
+              NSError *filesystemError = [NSError
+                  errorWithDomain:GlassesMediaDownloaderErrorDomain
+                             code:GlassesMediaDownloaderErrorCodeFilesystem
+                         userInfo:@{NSLocalizedDescriptionKey : description}];
+              [strongSelf finishWithError:filesystemError];
+              return;
+            }
 
-        [strongSelf downloadFiles:fileURLs
-                      toDirectory:directoryURL
-                          atIndex:index + 1
-                    latestPreview:nextPreview];
-      }];
+            NSLog(@"✅ [GlassesMediaDownloader] Saved [%lu/%lu] (%lu bytes) -> %@",
+                  (unsigned long)(index + 1), (unsigned long)fileURLs.count,
+                  (unsigned long)data.length, destinationURL.path);
+            UIImage *previewImage = [strongSelf previewImageForData:data];
+            UIImage *nextPreview = previewImage ?: latestPreview;
+            NSString *status =
+                [NSString stringWithFormat:@"Saved %lu/%lu: %@",
+                                           (unsigned long)(index + 1),
+                                           (unsigned long)fileURLs.count, filename];
+            [strongSelf updateStatus:status preview:nextPreview];
+
+            // 350ms pacing delay between files to allow smart glasses hardware to flush internal buffers and close file descriptor
+            dispatch_after(
+                dispatch_time(DISPATCH_TIME_NOW,
+                              (int64_t)(0.35 * NSEC_PER_SEC)),
+                dispatch_get_main_queue(), ^{
+                  [strongSelf downloadFiles:fileURLs
+                                toDirectory:directoryURL
+                                    atIndex:index + 1
+                                      retry:0
+                              latestPreview:nextPreview];
+                });
+          }];
   [task resume];
 }
 
