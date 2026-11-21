@@ -26,6 +26,7 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
 @property(nonatomic, copy) NSString *password;
 @property(nonatomic, copy) NSString *deviceIP;
 @property(nonatomic, strong) NSURLSession *session;
+@property(nonatomic, strong, nullable) NSURL *lastManifestURL;
 @property(nonatomic, assign) BOOL didFinish;
 @property(nonatomic, assign) BOOL isRequestingWifiCredentials;
 @end
@@ -1423,6 +1424,7 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
   NSLog(@"🔥 Downloading manifest from custom URL: %@", manifestURLString);
 
   NSURL *manifestURL = [NSURL URLWithString:manifestURLString];
+  self.lastManifestURL = manifestURL;
   if (!manifestURL) {
     NSError *error =
         [NSError errorWithDomain:GlassesMediaDownloaderErrorDomain
@@ -1875,8 +1877,48 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
   if (index >= fileURLs.count) {
     NSLog(@"🎉 [GlassesMediaDownloader] Successfully downloaded all %lu files!",
           (unsigned long)fileURLs.count);
-    [self updateStatus:@"All media downloaded." preview:latestPreview];
-    [self finishWithError:nil];
+    [self updateStatus:@"All media downloaded. Checking post-download manifest..."
+               preview:latestPreview];
+
+    // Re-fetch media.config to inspect what smart glasses report after download
+    NSURL *checkURL = self.lastManifestURL ?: [NSURL URLWithString:@"http://192.168.31.1/files/media.config"];
+    NSLog(@"🔥 🔍 [POST-DOWNLOAD CHECK] Re-fetching manifest from: %@", checkURL.absoluteString);
+    NSMutableURLRequest *postCheckReq =
+        [NSMutableURLRequest requestWithURL:checkURL
+                                cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
+                            timeoutInterval:5.0];
+    [postCheckReq setValue:@"close" forHTTPHeaderField:@"Connection"];
+
+    __weak typeof(self) weakSelf = self;
+    NSURLSessionDataTask *postCheckTask = [self.session
+          dataTaskWithRequest:postCheckReq
+            completionHandler:^(NSData *_Nullable data,
+                                NSURLResponse *_Nullable response,
+                                NSError *_Nullable error) {
+              __strong typeof(weakSelf) strongSelf = weakSelf;
+              if (!strongSelf) {
+                return;
+              }
+
+              NSHTTPURLResponse *httpResp = (NSHTTPURLResponse *)response;
+              if (error) {
+                NSLog(@"🔥 🔍 [POST-DOWNLOAD CHECK] Re-fetch error: %@", error.localizedDescription);
+              } else {
+                NSString *postContent = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                if (!postContent) {
+                  postContent = [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding];
+                }
+                NSLog(@"🔥 🔍 [POST-DOWNLOAD CHECK] Status: %ld, Size: %lu bytes",
+                      (long)httpResp.statusCode, (unsigned long)data.length);
+                NSLog(@"🔥 🔍 [POST-DOWNLOAD CHECK] Content after download:\n%@",
+                      postContent.length > 0 ? postContent : @"(empty)");
+              }
+
+              dispatch_async(dispatch_get_main_queue(), ^{
+                [strongSelf finishWithError:nil];
+              });
+            }];
+    [postCheckTask resume];
     return;
   }
 
@@ -2022,83 +2064,38 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
   });
 }
 
-- (void)attemptDelayedModeSwitchWithDelay:(NSTimeInterval)delay
-                                  attempt:(NSInteger)attempt {
-  NSLog(@"🔥 Attempting delayed mode switch to capture mode (attempt %zd, "
-        @"delay %.1fs)",
-        attempt, delay);
+- (void)stopTransferModeWithAttempt:(NSInteger)attempt
+                         completion:(GlassesMediaDownloaderCompletionHandler _Nullable)completion {
+  NSLog(@"🔥 [GlassesMediaDownloader] Stopping transfer mode via QCOperatorDeviceModeTransferStop (attempt %zd)",
+        attempt);
+  [self updateStatus:@"Stopping transfer mode..." preview:nil];
 
-  dispatch_after(
-      dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
-      dispatch_get_main_queue(), ^{
-        [self trySwitchToCaptureModeWithAttempt:attempt];
-      });
-}
-
-- (void)trySwitchToCaptureModeWithAttempt:(NSInteger)attempt {
-  NSLog(@"🔥 Trying to switch to capture mode (attempt %zd)", attempt);
-
-  [QCSDKCmdCreator setDeviceMode:QCOperatorDeviceModePhoto
+  [QCSDKCmdCreator setDeviceMode:QCOperatorDeviceModeTransferStop
       success:^{
-        NSLog(@"🔥 ✅ Successfully returned to capture mode after download "
-              @"(attempt %zd)",
-              attempt);
-        [self updateStatus:@"Successfully returned to capture mode"
-                   preview:nil];
+        NSLog(@"🔥 ✅ [GlassesMediaDownloader] Successfully stopped transfer mode (attempt %zd)", attempt);
+        [self updateStatus:@"Transfer mode stopped" preview:nil];
+        if (completion) {
+          dispatch_async(dispatch_get_main_queue(), ^{
+            completion(nil);
+          });
+        }
       }
       fail:^(NSInteger mode) {
-        NSLog(@"🔥 ⚠️ Failed to return to capture mode, current mode: %zd "
-              @"(attempt %zd)",
+        NSLog(@"🔥 ⚠️ [GlassesMediaDownloader] Failed to stop transfer mode, current mode: %zd (attempt %zd)",
               mode, attempt);
-
-        // Try video mode as intermediate step with exponential backoff
-        if (attempt < 5) { // Limit attempts to prevent infinite retry
-          NSTimeInterval nextDelay =
-              2.0 * pow(2.0, attempt - 1); // 2s, 4s, 8s, 16s
-
-          [self updateStatus:[NSString stringWithFormat:
-                                           @"Device busy, retrying in %.1fs...",
-                                           nextDelay]
-                     preview:nil];
-
-          // First try video mode, then photo mode
-          [QCSDKCmdCreator setDeviceMode:QCOperatorDeviceModeVideo
-              success:^{
-                NSLog(@"🔥 Switched to video mode, now trying capture mode "
-                      @"(attempt %zd)",
-                      attempt);
-                [QCSDKCmdCreator setDeviceMode:QCOperatorDeviceModePhoto
-                    success:^{
-                      NSLog(@"🔥 ✅ Successfully returned to capture mode via "
-                            @"video mode (attempt %zd)",
-                            attempt);
-                      [self
-                          updateStatus:@"Successfully returned to capture mode"
-                               preview:nil];
-                    }
-                    fail:^(NSInteger photoMode) {
-                      NSLog(@"🔥 ❌ Still failed to return to capture mode, "
-                            @"current mode: %zd (attempt %zd)",
-                            photoMode, attempt);
-                      // Schedule next attempt with exponential backoff
-                      [self attemptDelayedModeSwitchWithDelay:nextDelay
-                                                      attempt:attempt + 1];
-                    }];
-              }
-              fail:^(NSInteger videoMode) {
-                NSLog(@"🔥 ❌ Failed to switch to video mode, current mode: "
-                      @"%zd (attempt %zd)",
-                      videoMode, attempt);
-                // Schedule next attempt with exponential backoff
-                [self attemptDelayedModeSwitchWithDelay:nextDelay
-                                                attempt:attempt + 1];
-              }];
+        if (attempt < 3) {
+          dispatch_after(
+              dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+              dispatch_get_main_queue(), ^{
+                [self stopTransferModeWithAttempt:attempt + 1 completion:completion];
+              });
         } else {
-          NSLog(@"🔥 ❌ Max attempts reached, device remains in transfer mode");
-          [self
-              updateStatus:
-                  @"Device remains in transfer mode. Please restart if needed."
-                   preview:nil];
+          NSLog(@"🔥 ⚠️ [GlassesMediaDownloader] Max stop attempts reached. Proceeding with completion.");
+          if (completion) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+              completion(nil);
+            });
+          }
         }
       }];
 }
@@ -2109,26 +2106,23 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
   }
   self.didFinish = YES;
 
-  // Properly close WiFi connection and return device to capture mode when
-  // download completes
-  if (!error) {
-    NSLog(@"🔥 Download completed successfully, closing WiFi connection and "
-          @"returning to capture mode");
-    [self updateStatus:@"Download complete! Returning to capture mode..."
-               preview:nil];
-
-    // Device needs time to transition between WiFi (transfer) and Bluetooth
-    // (capture) modes Implement delayed mode switching with exponential backoff
-    [self attemptDelayedModeSwitchWithDelay:2.0 attempt:1];
-  }
-
   GlassesMediaDownloaderCompletionHandler completion = self.completionHandler;
-  if (completion) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-      completion(error);
-    });
-  }
   self.completionHandler = nil;
+
+  if (!error) {
+    NSLog(@"🔥 [GlassesMediaDownloader] All files downloaded. Stopping WiFi transfer mode...");
+    [self updateStatus:@"Download complete! Stopping transfer mode..."
+               preview:nil];
+    [self stopTransferModeWithAttempt:1 completion:completion];
+  } else {
+    // If there was an error, try to stop transfer mode so glasses don't stay in Wi-Fi mode
+    [QCSDKCmdCreator setDeviceMode:QCOperatorDeviceModeTransferStop success:^{} fail:^(NSInteger m){}];
+    if (completion) {
+      dispatch_async(dispatch_get_main_queue(), ^{
+        completion(error);
+      });
+    }
+  }
 }
 
 @end
