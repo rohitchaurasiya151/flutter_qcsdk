@@ -12,6 +12,7 @@
 @property(nonatomic, copy, nullable) NSString *lastWifiSSID;
 @property(nonatomic, strong, nullable)
     GlassesMediaDownloader *glassesDownloader;
+@property(nonatomic, assign) NSInteger currentDeviceMode;
 @end
 
 @implementation FlutterQcsdkPlugin
@@ -38,6 +39,7 @@
   self = [super init];
   if (self) {
     _scannedPeripherals = [NSMutableDictionary dictionary];
+    _currentDeviceMode = QCOperatorDeviceModePhoto;
   }
   return self;
 }
@@ -119,21 +121,27 @@
     result(nil);
   } else if ([@"setDeviceMode" isEqualToString:call.method]) {
     NSInteger modeVal = [call.arguments[@"mode"] integerValue];
+    __weak typeof(self) weakSelf = self;
     [QCSDKCmdCreator setDeviceMode:(QCOperatorDeviceMode)modeVal
         success:^{
+          weakSelf.currentDeviceMode = modeVal;
           result(nil);
         }
         fail:^(NSInteger errCode) {
+          weakSelf.currentDeviceMode = errCode;
           result([FlutterError errorWithCode:@"ERROR"
                                      message:@"Failed to set device mode"
                                      details:@(errCode)]);
         }];
+  } else if ([@"getDeviceMode" isEqualToString:call.method]) {
+    result(@(self.currentDeviceMode ?: QCOperatorDeviceModePhoto));
   } else if ([@"openWifiWithMode" isEqualToString:call.method]) {
     NSInteger modeVal = [call.arguments[@"mode"] integerValue];
     NSLog(@"👓 [iOS QCSDK] openWifiWithMode called (mode: %ld)", (long)modeVal);
     __weak typeof(self) weakSelf = self;
     [QCSDKCmdCreator openWifiWithMode:(QCOperatorDeviceMode)modeVal
         success:^(NSString *ssid, NSString *pwd) {
+          weakSelf.currentDeviceMode = modeVal;
           NSLog(@"👓 [iOS QCSDK] openWifiWithMode SUCCESS -> SSID: '%@', PWD: "
                 @"'%@'",
                 ssid, pwd);
@@ -533,6 +541,7 @@
           @"count" : @(0)
         }];
       } else {
+        weakSelf.currentDeviceMode = QCOperatorDeviceModePhoto;
         NSLog(@"✅ [GlassesMediaDownloader SUCCESS]: All media files "
               @"downloaded to disk");
         [weakSelf sendEvent:@{
@@ -695,6 +704,11 @@
 }
 
 - (void)didState:(QCState)state {
+  if (state == QCStateConnected) {
+    self.currentDeviceMode = QCOperatorDeviceModePhoto;
+  } else if (state == QCStateDisconnected) {
+    self.currentDeviceMode = QCOperatorDeviceModeUnkown;
+  }
   [self sendEvent:@{@"type" : @"deviceState", @"state" : @(state)}];
 }
 

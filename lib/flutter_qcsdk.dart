@@ -204,6 +204,12 @@ class FlutterQcsdk {
     await _channel.invokeMethod('setDeviceMode', {'mode': mode.value});
   }
 
+  /// Get current operating mode of the spectacles
+  static Future<QCDeviceMode> getDeviceMode() async {
+    final int? val = await _channel.invokeMethod<int>('getDeviceMode');
+    return QCDeviceMode.fromValue(val ?? 1);
+  }
+
   /// Open device Wi-Fi with specified mode
   static Future<Map<String, String>> openWifiWithMode(QCDeviceMode mode) async {
     final Map<dynamic, dynamic>? res = await _channel.invokeMethod('openWifiWithMode', {'mode': mode.value});
