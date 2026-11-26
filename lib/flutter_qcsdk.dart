@@ -31,6 +31,7 @@ class FlutterQcsdk {
   static final _aiChatController = StreamController<Map<String, dynamic>>.broadcast();
   static final _downloadProgressController = StreamController<Map<String, dynamic>>.broadcast();
   static final _downloadCompleteController = StreamController<Map<String, dynamic>>.broadcast();
+  static final _downloadStatusController = StreamController<String>.broadcast();
   static final _wifiUpgradeController = StreamController<Map<String, dynamic>>.broadcast();
 
   // Public Streams
@@ -42,6 +43,7 @@ class FlutterQcsdk {
   static Stream<Map<String, dynamic>> get aiChatStream => _aiChatController.stream;
   static Stream<Map<String, dynamic>> get downloadProgressStream => _downloadProgressController.stream;
   static Stream<Map<String, dynamic>> get downloadCompleteStream => _downloadCompleteController.stream;
+  static Stream<String> get downloadStatusStream => _downloadStatusController.stream;
   static Stream<Map<String, dynamic>> get wifiUpgradeStream => _wifiUpgradeController.stream;
 
   /// Initialize and start listening to native events from QCSDK
@@ -108,12 +110,19 @@ class FlutterQcsdk {
             final received = event['receivedSize'] as int? ?? 0;
             final expected = event['expectedSize'] as int? ?? 0;
             final prog = (event['progress'] as num?)?.toDouble() ?? 0.0;
+            final status = event['status'] as String? ?? '';
             debugPrint('👓 [SPECS SDK STREAM] Download Progress: $received / $expected (${(prog * 100).toStringAsFixed(1)}%)');
             _downloadProgressController.add({
               'receivedSize': received,
               'expectedSize': expected,
               'progress': prog,
+              'status': status,
             });
+            break;
+          case 'downloadStatus':
+            final statusMsg = event['status'] as String? ?? '';
+            debugPrint('👓 [SPECS SDK STREAM] Download Status: $statusMsg');
+            _downloadStatusController.add(statusMsg);
             break;
           case 'downloadComplete':
             final path = event['filePath'] as String? ?? '';

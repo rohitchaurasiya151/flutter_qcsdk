@@ -1854,6 +1854,11 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
 
   if (fileURLs.count == 0) {
     [self updateStatus:@"No media listed in manifest." preview:nil];
+    if (self.progressHandler) {
+      dispatch_async(dispatch_get_main_queue(), ^{
+        self.progressHandler(0, 0, 1.0);
+      });
+    }
     [self finishWithError:nil];
     return;
   }
@@ -1875,6 +1880,11 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
   if (index >= fileURLs.count) {
     NSLog(@"🎉 [GlassesMediaDownloader] Successfully downloaded all %lu files!",
           (unsigned long)fileURLs.count);
+    if (self.progressHandler) {
+      dispatch_async(dispatch_get_main_queue(), ^{
+        self.progressHandler(fileURLs.count, fileURLs.count, 1.0);
+      });
+    }
     [self updateStatus:@"All media downloaded. Checking post-download manifest..."];
 
     // Re-fetch media.config to inspect what smart glasses report after download
@@ -1937,6 +1947,12 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
                                                 (unsigned long)(index + 1),
                                                 (unsigned long)fileURLs.count,
                                                 filename, attemptStr]];
+  if (self.progressHandler) {
+    CGFloat initialProg = (CGFloat)index / (CGFloat)fileURLs.count;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      self.progressHandler(index, fileURLs.count, initialProg);
+    });
+  }
 
   NSMutableURLRequest *request =
       [NSMutableURLRequest requestWithURL:fileURL
@@ -2024,6 +2040,18 @@ typedef NS_ENUM(NSInteger, GlassesMediaDownloaderErrorCode) {
                                            (unsigned long)(index + 1),
                                            (unsigned long)fileURLs.count, filename];
             [strongSelf updateStatus:status];
+
+            if (strongSelf.fileDownloadedHandler) {
+              dispatch_async(dispatch_get_main_queue(), ^{
+                strongSelf.fileDownloadedHandler(destinationURL.path, index + 1, fileURLs.count);
+              });
+            }
+            if (strongSelf.progressHandler) {
+              CGFloat currentProg = (CGFloat)(index + 1) / (CGFloat)fileURLs.count;
+              dispatch_async(dispatch_get_main_queue(), ^{
+                strongSelf.progressHandler(index + 1, fileURLs.count, currentProg);
+              });
+            }
 
             // 350ms pacing delay between files to allow smart glasses hardware to flush internal buffers and close file descriptor
             dispatch_after(

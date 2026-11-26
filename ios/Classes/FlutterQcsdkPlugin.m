@@ -519,7 +519,32 @@
     self.glassesDownloader = [[GlassesMediaDownloader alloc]
         initWithStatusHandler:^(NSString *status) {
           NSLog(@"👓 [GlassesMediaDownloader]: %@", status);
+          [weakSelf sendEvent:@{
+            @"type" : @"downloadStatus",
+            @"status" : status ?: @""
+          }];
         }];
+
+    self.glassesDownloader.progressHandler = ^(NSInteger completedFiles, NSInteger totalFiles, CGFloat progress) {
+      [weakSelf sendEvent:@{
+        @"type" : @"downloadProgress",
+        @"receivedSize" : @(completedFiles),
+        @"expectedSize" : @(totalFiles),
+        @"index" : @(completedFiles),
+        @"count" : @(totalFiles),
+        @"progress" : @(progress)
+      }];
+    };
+
+    self.glassesDownloader.fileDownloadedHandler = ^(NSString *filePath, NSInteger index, NSInteger count) {
+      [weakSelf sendEvent:@{
+        @"type" : @"downloadComplete",
+        @"filePath" : filePath ?: @"",
+        @"error" : @"",
+        @"index" : @(index),
+        @"count" : @(count)
+      }];
+    };
 
     [self.glassesDownloader startDownloadWithCompletion:^(NSError *error) {
       if (error) {
